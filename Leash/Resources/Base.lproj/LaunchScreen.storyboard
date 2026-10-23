@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="26000" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="launch-controller">
+    <device id="retina6_12" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="26000"/>
+        <capability name="Safe area layout guides" minToolsVersion="9.0"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <scenes>
+        <scene sceneID="launch-scene">
+            <objects>
+                <viewController id="launch-controller" sceneMemberID="viewController">
+                    <view key="view" contentMode="scaleToFill" id="launch-root">
+                        <rect key="frame" x="0.0" y="0.0" width="390" height="844"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                        <subviews>
+                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleToFill" image="LaunchLawn" translatesAutoresizingMaskIntoConstraints="NO" id="lawn">
+                                <rect key="frame" x="0" y="0" width="390" height="844"/>
+                            </imageView>
+                            <imageView userInteractionEnabled="NO" contentMode="scaleAspectFit" image="LaunchLockup" translatesAutoresizingMaskIntoConstraints="NO" id="lockup">
+                                <rect key="frame" x="55" y="252" width="280" height="280"/>
+                                <constraints>
+                                    <constraint firstAttribute="width" constant="280" id="lockup-width"/>
+                                    <constraint firstAttribute="height" constant="280" id="lockup-height"/>
+                                </constraints>
+                            </imageView>
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="One leash, connecting you and me." textAlignment="center" lineBreakMode="wordWrap" numberOfLines="2" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="slogan">
+                                <rect key="frame" x="20" y="540" width="350" height="45"/>
+                                <fontDescription key="fontDescription" name="Menlo-Regular" family="Menlo" pointSize="14"/>
+                                <color key="textColor" red="0.16862745098" green="0.14509803922" blue="0.2" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                                <nil key="highlightedColor"/>
+                            </label>
+                        </subviews>
+                        <viewLayoutGuide key="safeArea" id="launch-safe"/>
+                        <color key="backgroundColor" red="0.54901960784" green="0.76862745098" blue="0.43137254902" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <constraints>
+                            <constraint firstItem="lawn" firstAttribute="top" secondItem="launch-root" secondAttribute="top" id="lawn-top"/>
+                            <constraint firstItem="lawn" firstAttribute="bottom" secondItem="launch-root" secondAttribute="bottom" id="lawn-bottom"/>
+                            <constraint firstItem="lawn" firstAttribute="leading" secondItem="launch-root" secondAttribute="leading" id="lawn-leading"/>
+                            <constraint firstItem="lawn" firstAttribute="trailing" secondItem="launch-root" secondAttribute="trailing" id="lawn-trailing"/>
+                            <constraint firstItem="lockup" firstAttribute="centerX" secondItem="launch-root" secondAttribute="centerX" id="lockup-center-x"/>
+                            <constraint firstItem="lockup" firstAttribute="centerY" secondItem="launch-root" secondAttribute="centerY" constant="-30" id="lockup-center-y"/>
+                            <constraint firstItem="slogan" firstAttribute="top" secondItem="lockup" secondAttribute="bottom" constant="8" id="slogan-top"/>
+                            <constraint firstItem="slogan" firstAttribute="leading" secondItem="launch-root" secondAttribute="leading" constant="20" id="slogan-leading"/>
+                            <constraint firstItem="launch-root" firstAttribute="trailing" secondItem="slogan" secondAttribute="trailing" constant="20" id="slogan-trailing"/>
+                            <constraint firstItem="slogan" firstAttribute="height" constant="45" id="slogan-height"/>
+                        </constraints>
+                    </view>
+                </viewController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="launch-responder" userLabel="First Responder" sceneMemberID="firstResponder"/>
+            </objects>
+        </scene>
+    </scenes>
+    <resources>
+        <image name="LaunchLawn" width="780" height="1688"/>
+        <image name="LaunchLockup" width="640" height="640"/>
+    </resources>
+</document>
