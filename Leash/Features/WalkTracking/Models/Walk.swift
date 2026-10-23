@@ -17,9 +17,20 @@ struct Walk: Codable, Identifiable, Equatable {
     var distanceMeters: Double = 0
     var route: [RoutePoint] = []
     var events: [WalkEvent] = []
+    var spotID: String?
+    var photoIDs: [UUID] = []
+    /// Set for indoor-play quest entries, which have no route.
+    var indoorActivity: String?
+
+    var isIndoor: Bool { indoorActivity != nil }
 
     func duration(at date: Date) -> TimeInterval {
         max(0, (endedAt ?? date).timeIntervalSince(startedAt))
+    }
+
+    /// Whole minutes, at least one, as used for game progress.
+    func minutes(at date: Date = .now) -> Int {
+        max(1, Int((duration(at: date) / 60).rounded()))
     }
 
     func count(of kind: WalkEvent.Kind) -> Int {
@@ -39,6 +50,26 @@ struct Walk: Codable, Identifiable, Equatable {
             previous = point.timestamp
         }
         return result
+    }
+}
+
+extension Walk {
+    private enum CodingKeys: String, CodingKey {
+        case id, startedAt, endedAt, distanceMeters, route, events, spotID, photoIDs, indoorActivity
+    }
+
+    /// Tolerates fields added after a walk was saved.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        startedAt = try container.decode(Date.self, forKey: .startedAt)
+        endedAt = try container.decodeIfPresent(Date.self, forKey: .endedAt)
+        distanceMeters = try container.decodeIfPresent(Double.self, forKey: .distanceMeters) ?? 0
+        route = try container.decodeIfPresent([RoutePoint].self, forKey: .route) ?? []
+        events = try container.decodeIfPresent([WalkEvent].self, forKey: .events) ?? []
+        spotID = try container.decodeIfPresent(String.self, forKey: .spotID)
+        photoIDs = try container.decodeIfPresent([UUID].self, forKey: .photoIDs) ?? []
+        indoorActivity = try container.decodeIfPresent(String.self, forKey: .indoorActivity)
     }
 }
 

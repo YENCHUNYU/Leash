@@ -14,6 +14,11 @@ final class WalkViewModel {
     private var previousLocation: CLLocation?
 
     var activeWalk: Walk? { archive.active }
+    /// Latest route point during a walk, otherwise Core Location's cached fix.
+    var currentLocation: CLLocation? {
+        if let point = archive.active?.route.last { return CLLocation(latitude: point.latitude, longitude: point.longitude) }
+        return location.lastLocation
+    }
     var totalMinutes: Int {
         Int(archive.completed.reduce(0) { $0 + $1.duration(at: .now) } / 60)
     }
@@ -39,30 +44,51 @@ final class WalkViewModel {
         }
     }
 
-    func start() {
-        guard archive.active == nil, saveActive(Walk()) else { return }
+    func start(at spotID: String? = nil) {
+        guard archive.active == nil, saveActive(Walk(spotID: spotID)) else { return }
         previousLocation = nil
         updateAuthorization()
     }
 
+    /// Returns the saved walk, or nil if it could not be saved.
     @discardableResult
-    func finish() -> Bool {
-        guard canWrite, var walk = archive.active else { return false }
+    func finish() -> Walk? {
+        guard canWrite, var walk = archive.active else { return nil }
         walk.endedAt = Date()
         let completed = [walk] + archive.completed
-        do {
-            try store.saveCompleted(completed)
-        } catch {
-            self.error = .save
-            return false
-        }
+        guard saveCompleted(completed) else { return nil }
         // History is durable now; if clearing fails, load discards the stale active walk.
         try? store.saveActive(nil)
         archive = WalkArchive(active: nil, completed: completed)
         location.stop()
         previousLocation = nil
         gpsStatus = .ready
-        return true
+        return walk
+    }
+
+    func setSpot(_ spotID: String) {
+        guard var walk = archive.active else { return }
+        walk.spotID = spotID
+        saveActive(walk)
+    }
+
+    func attachPhoto(_ id: UUID) {
+        guard var walk = archive.active else { return }
+        walk.photoIDs.append(id)
+        saveActive(walk)
+    }
+
+    /// Records a ten-minute indoor play session, which counts toward the daily walk quest.
+    @discardableResult
+    func logIndoorPlay(_ activity: String, at date: Date = .now) -> Bool {
+        let session = Walk(startedAt: date.addingTimeInterval(-600), endedAt: date,
+                           spotID: Spot.indoorID, indoorActivity: activity)
+        return saveCompleted([session] + archive.completed)
+    }
+
+    @discardableResult
+    func delete(_ walk: Walk) -> Bool {
+        saveCompleted(archive.completed.filter { $0.id != walk.id })
     }
 
     func log(_ kind: WalkEvent.Kind) {
@@ -106,6 +132,18 @@ final class WalkViewModel {
                 previousLocation = fix
                 gpsStatus = .tracking
             }
+        }
+    }
+
+    private func saveCompleted(_ completed: [Walk]) -> Bool {
+        guard canWrite else { return false }
+        do {
+            try store.saveCompleted(completed)
+            archive.completed = completed
+            return true
+        } catch {
+            self.error = .save
+            return false
         }
     }
 

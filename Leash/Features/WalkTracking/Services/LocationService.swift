@@ -4,6 +4,8 @@ import CoreLocation
 @MainActor
 protocol LocationTracking: AnyObject {
     var authorization: CLAuthorizationStatus { get }
+    /// Most recent fix Core Location has cached, if authorized.
+    var lastLocation: CLLocation? { get }
     var onLocation: ((CLLocation) -> Void)? { get set }
     var onStatusChange: (() -> Void)? { get set }
     var onError: ((Error) -> Void)? { get set }
@@ -19,6 +21,7 @@ final class LocationService: NSObject, LocationTracking, @preconcurrency CLLocat
     var onStatusChange: (() -> Void)?
     var onError: ((Error) -> Void)?
     var authorization: CLAuthorizationStatus { manager.authorizationStatus }
+    var lastLocation: CLLocation? { manager.location }
 
     override init() {
         super.init()

@@ -29,6 +29,7 @@ final class FakeWalkStore: WalkStoring {
 
 final class FakeLocation: LocationTracking {
     var authorization: CLAuthorizationStatus
+    var lastLocation: CLLocation?
     var onLocation: ((CLLocation) -> Void)?
     var onStatusChange: (() -> Void)?
     var onError: ((Error) -> Void)?

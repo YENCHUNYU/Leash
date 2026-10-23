@@ -3,6 +3,8 @@ import SwiftUI
 struct WanderingDog: View {
     let outdoors: Bool
     let name: String
+    var breed = Breed.named("mixy")
+    var scarf: UInt32 = DogProfile.scarves[0]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @State private var position = CGPoint(x: 0.4, y: 0.68)
@@ -15,14 +17,14 @@ struct WanderingDog: View {
             VStack(spacing: 4) {
                 TimelineView(.animation(minimumInterval: 0.15, paused: reduceMotion || scenePhase != .active)) { context in
                     let beat = Int(context.date.timeIntervalSinceReferenceDate * (walking ? 4 : 1.25)) % 2
-                    PixelDog().frame(width: side, height: side)
+                    PixelDog(breed: breed, scarf: scarf).frame(width: side, height: side)
                         .scaleEffect(x: facingLeft ? -1 : 1, y: 1)
                         .offset(y: reduceMotion ? 0 : (beat == 0 ? 0 : -3))
                 }
                 Text(name).font(.system(.caption, design: .monospaced))
                     .padding(.horizontal, 9).padding(.vertical, 2)
                     .foregroundStyle(.white)
-                    .background(Color(leashHex: 0x2B2533).opacity(0.74), in: RoundedRectangle(cornerRadius: 7))
+                    .background(Theme.overlay, in: RoundedRectangle(cornerRadius: 7))
             }
             .position(x: geometry.size.width * position.x, y: geometry.size.height * position.y)
         }
