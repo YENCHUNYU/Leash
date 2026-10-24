@@ -4,6 +4,17 @@ A pixel-art dog-walking app for iPhone and iPad. Leash tracks your walks with GP
 
 Built natively in SwiftUI with no third-party dependencies. Available in English and 繁體中文.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/home.png" width="160" alt="Home screen with the pixel dog in its room">
+  <img src="docs/screenshots/walk.png" width="160" alt="Walk in progress with a visiting dog">
+  <img src="docs/screenshots/spots.png" width="160" alt="Dog parks on a map">
+  <img src="docs/screenshots/quests.png" width="160" alt="Daily quests and walk egg">
+  <img src="docs/screenshots/dex.png" width="160" alt="Breed collection Dex">
+</p>
+<p align="center"><sub>Home · Walk · Spots · Quests · Dex</sub></p>
+
 ## Features
 
 ### Walk tracking
