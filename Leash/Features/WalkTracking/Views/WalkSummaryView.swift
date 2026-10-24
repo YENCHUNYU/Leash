@@ -1,36 +1,61 @@
 import SwiftUI
 import MapKit
 
-struct WalkSummaryView: View {
+struct WalkSummaryView<Footer: View>: View {
     let walk: Walk
+    @ViewBuilder var footer: Footer
+    @Environment(PhotoLibrary.self) private var photos
+    @Environment(SpotCatalog.self) private var spots
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.appLanguage) private var language
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
-                RouteMap(walk: walk).frame(height: 300).clipShape(RoundedRectangle(cornerRadius: 24))
+            VStack(spacing: 12) {
+                if walk.isIndoor {
+                    Label(walk.indoorActivity ?? "", systemImage: "house.fill").card()
+                } else {
+                    RouteMap(walk: walk).frame(height: 280).clipShape(RoundedRectangle(cornerRadius: 24))
+                }
+                Text("\(walk.startedAt.formatted(.dateTime.locale(language.locale))) · \(WalkFormat.spotName(walk, spots: spots, language: language))")
+                    .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 HStack {
+                    metric(language.text("Distance", "距離"), value: WalkFormat.distance(walk, locale: language.locale))
                     TimelineView(.periodic(from: .now, by: 1)) { context in
-                        metric(language.text("Duration", "散步時間"), value: WalkFormat.duration(walk.duration(at: context.date)))
+                        metric(language.text("Time", "時間"), value: WalkFormat.duration(walk.duration(at: context.date)))
                     }
-                    metric(language.text("Distance", "散步距離"), value: WalkFormat.distance(walk, locale: language.locale))
+                    metric(language.text("Pace", "配速"), value: WalkFormat.pace(walk, locale: language.locale))
                 }
                 HStack {
                     metric(language.text("💩 Poop", "💩 便便"), value: "\(walk.count(of: .poop))")
                     metric(language.text("💧 Pee", "💧 尿尿"), value: "\(walk.count(of: .pee))")
+                    metric(language.text("📷 Photo", "📷 拍照"), value: "\(walk.photoIDs.count)")
                 }
-                Text(walk.startedAt.formatted(.dateTime.locale(language.locale))).font(.caption).foregroundStyle(.secondary)
+                let walkPhotos = walk.photoIDs.compactMap(photos.photo(id:))
+                if !walkPhotos.isEmpty {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
+                        ForEach(walkPhotos) { PhotoThumbnail(photo: $0) }
+                    }
+                }
+                footer
+                if !walk.isIndoor {
+                    Text(language.text("Routes stay on this device.", "路線只存在這台裝置，不會公開。"))
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
             }.padding(16)
         }.background(Theme.background(colorScheme))
     }
 
     private func metric(_ title: String, value: String) -> some View {
         VStack(spacing: 5) {
-            Text(value).font(.system(.title2, design: .monospaced))
+            Text(value).font(.system(.title3, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.5)
             Text(title).font(.caption).foregroundStyle(.secondary)
-        }.frame(maxWidth: .infinity).padding(14).background(Theme.surface(colorScheme), in: RoundedRectangle(cornerRadius: 16))
+        }.frame(maxWidth: .infinity).padding(12).background(Theme.surface(colorScheme), in: RoundedRectangle(cornerRadius: 16))
     }
+}
+
+extension WalkSummaryView where Footer == EmptyView {
+    init(walk: Walk) { self.init(walk: walk) { EmptyView() } }
 }
 
 private struct RouteMap: View {
@@ -49,8 +74,9 @@ private struct RouteMap: View {
         }
         .overlay {
             if walk.route.isEmpty {
-                Text(language.text("Your route will appear when GPS is available.", "取得 GPS 位置後，路線會顯示在這裡。"))
-                    .padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                Text(language.text("No route this time. Your route appears when GPS is available.", "這次沒有記到路線。取得 GPS 位置後，路線會顯示在這裡。"))
+                    .multilineTextAlignment(.center)
+                    .padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)).padding()
             }
         }
     }

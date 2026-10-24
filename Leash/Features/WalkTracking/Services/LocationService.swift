@@ -4,10 +4,14 @@ import CoreLocation
 @MainActor
 protocol LocationTracking: AnyObject {
     var authorization: CLAuthorizationStatus { get }
+    /// Most recent fix Core Location has cached, if authorized.
+    var lastLocation: CLLocation? { get }
     var onLocation: ((CLLocation) -> Void)? { get set }
     var onStatusChange: (() -> Void)? { get set }
     var onError: ((Error) -> Void)? { get set }
     func requestPermission()
+    /// One fix without starting continuous updates, e.g. to sort parks by distance.
+    func requestCurrentLocation()
     func start()
     func stop()
 }
@@ -19,6 +23,7 @@ final class LocationService: NSObject, LocationTracking, @preconcurrency CLLocat
     var onStatusChange: (() -> Void)?
     var onError: ((Error) -> Void)?
     var authorization: CLAuthorizationStatus { manager.authorizationStatus }
+    var lastLocation: CLLocation? { manager.location }
 
     override init() {
         super.init()
@@ -29,6 +34,7 @@ final class LocationService: NSObject, LocationTracking, @preconcurrency CLLocat
     }
 
     func requestPermission() { manager.requestWhenInUseAuthorization() }
+    func requestCurrentLocation() { manager.requestLocation() }
     func start() {
         // Enable background updates only after the host app configures the capability.
         let modes = Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String] ?? []

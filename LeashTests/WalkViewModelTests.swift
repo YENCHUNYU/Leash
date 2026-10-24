@@ -37,7 +37,7 @@ struct WalkViewModelTests {
         let model = WalkViewModel(store: store, location: location)
         model.start()
         let id = model.activeWalk?.id
-        #expect(model.finish())
+        #expect(model.finish() != nil)
         #expect(model.activeWalk == nil)
         #expect(store.archive.active == nil)
         #expect(store.archive.completed.map(\.id) == [id])
@@ -50,7 +50,7 @@ struct WalkViewModelTests {
         let model = WalkViewModel(store: store, location: FakeLocation())
         model.start()
         store.failSaves = true
-        #expect(!model.finish())
+        #expect(model.finish() == nil)
         #expect(model.activeWalk != nil)
         #expect(model.archive.completed.isEmpty)
         #expect(model.error == .save)

@@ -20,10 +20,7 @@ final class FileWalkStore: WalkStoring {
     private let fileManager = FileManager.default
 
     init(directory: URL? = nil) throws {
-        let directory = try directory ?? FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask,
-            appropriateFor: nil, create: true
-        ).appendingPathComponent("Leash", isDirectory: true)
+        let directory = try directory ?? LeashDirectory.url()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         activeURL = directory.appendingPathComponent("active-walk.json")
         completedURL = directory.appendingPathComponent("completed-walks.json")
