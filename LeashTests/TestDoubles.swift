@@ -39,6 +39,12 @@ final class FakeLocation: LocationTracking {
     init(authorization: CLAuthorizationStatus = .authorizedWhenInUse) { self.authorization = authorization }
 
     func requestPermission() { permissionRequests += 1 }
+    private(set) var locationRequests = 0
+    func requestCurrentLocation() { locationRequests += 1 }
+    func grant(_ status: CLAuthorizationStatus) {
+        authorization = status
+        onStatusChange?()
+    }
     func start() { isUpdating = true }
     func stop() { isUpdating = false }
     func send(_ fix: CLLocation) { onLocation?(fix) }

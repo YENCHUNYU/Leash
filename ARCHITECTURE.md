@@ -24,7 +24,11 @@ Leash/
       GameModel.swift                 Progress, encounters, treat tosses, profile, milestones
       Views/                          Quests, Dex, Profile, Encounter
     Album/                            PhotoLibrary (JPEG files + index), album, camera picker
-    Spots/                            Spot, SpotCatalog (bundled + custom), SpotsView
+    Spots/
+      Models/                         Spot (address, hours, facility status, leash policy, source),
+                                      ParkQuery (search, filter chips, nearest-first sorting)
+      Services/                       SpotCatalog (bundled OSM + custom spots), MapsLauncher
+      Views/                          SpotsView (map/list), ParkMapView, ParkDetailView, ParkComponents
 LeashTests/                           Swift Testing: GPS filter, view model, storage, game rules
 Config/Info.plist                     Background location mode
 ```
@@ -32,6 +36,12 @@ Config/Info.plist                     Background location mode
 ## Game layer
 
 Ported from the HTML prototype. Progress is never stored: XP, level, treats, streaks, quests and badges are recomputed from walk history, photos, custom spots and `GameState` (encounter outcomes, treats spent, friends). Only encounter results and the dog profile are persisted. Visiting dogs appear one minute into a walk, then every eight minutes (up to four); every 120 outdoor minutes hatches an egg dog of uncommon rarity or better. Breeds and toss outcomes come from a string-seeded generator matching the prototype's `hashStr`, so an encounter cannot be rerolled. Hot-weather rules and the Dex region list follow the app language (English uses US seasons and states; Chinese uses Taiwan's), as in the prototype.
+
+## Park discovery
+
+Spots shows parks on a MapKit map (markers for the 150 parks nearest the map centre) or as a list, nearest first from the user's location. Filter chips combine (all must match). Park data is a bundled OpenStreetMap snapshot, not live: facilities are only recorded when present, so a missing tag is shown as "Not verified", never "No". Every OSM dog park is an off-leash area by definition, so that chip barely narrows results. Opening hours are shown as the raw OSM `opening_hours` text when mapped (248 parks), otherwise "Unknown". User-added spots have no coordinates; Go searches Apple Maps by name for them.
+
+"Go" opens walking directions in Apple Maps and saves the park (`leash.plannedSpotID`); the next walk started with the floating Start button is linked to it. The view model can request a single location fix outside walks (`locateUser`) to sort parks by distance.
 
 Not ported: the prototype's cloud account sync, sunset sky colours, and its hand-curated spot list (the bundled OSM data covers the same parks).
 

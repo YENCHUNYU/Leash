@@ -78,7 +78,7 @@ struct ProgressTests {
     }
 
     @Test func firstVisitToSpotIsCollected() {
-        let park = Spot(id: "p1", name: "Park", country: .taiwan, region: "新北市", subregion: "板橋區", detail: "",
+        let park = Spot(id: "p1", name: "Park", country: .taiwan, region: "新北市", subregion: "板橋區", address: "",
                         tags: [.water], latitude: 25, longitude: 121.5)
         let result = progress([walk(minutes: 10, spot: "p1"), walk(minutes: 10, daysAgo: 1, spot: "p1")], spots: [park])
         #expect(result.visitedSpotIDs == ["p1"])

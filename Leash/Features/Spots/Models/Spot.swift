@@ -4,6 +4,12 @@ import CoreLocation
 nonisolated struct Spot: Identifiable, Hashable, Sendable {
     enum Country: String, Codable, Sendable { case taiwan, unitedStates }
 
+    enum Source: Sendable {
+        /// Bundled snapshot of OpenStreetMap `leisure=dog_park` features.
+        case openStreetMap
+        case userAdded
+    }
+
     /// Raw values are bit positions in the bundled OSM data.
     enum Tag: Int, CaseIterable, Codable, Sendable {
         case fence, zone, water, wash, bag, shade, offLeash, grass, allDay, free
@@ -12,9 +18,9 @@ nonisolated struct Spot: Identifiable, Hashable, Sendable {
             switch self {
             case .fence: language.text("Fenced", "有圍欄")
             case .zone: language.text("Small/large areas", "大小型犬分區")
-            case .water: language.text("Water", "洗手台／水")
+            case .water: language.text("Drinking water", "飲水")
             case .wash: language.text("Dog wash", "洗狗設備")
-            case .bag: language.text("Bags & bins", "便袋／垃圾桶")
+            case .bag: language.text("Waste stations", "便袋／垃圾桶")
             case .shade: language.text("Shade", "遮蔭")
             case .offLeash: language.text("Off-leash", "可放繩")
             case .grass: language.text("Grass", "草地")
@@ -22,7 +28,34 @@ nonisolated struct Spot: Identifiable, Hashable, Sendable {
             case .free: language.text("Free", "免費")
             }
         }
+
+        var systemImage: String {
+            switch self {
+            case .fence: "square.dashed"
+            case .zone: "square.split.2x1"
+            case .water: "drop.fill"
+            case .wash: "shower.fill"
+            case .bag: "trash.fill"
+            case .shade: "tree.fill"
+            case .offLeash: "figure.run"
+            case .grass: "leaf.fill"
+            case .allDay: "clock.fill"
+            case .free: "tag.fill"
+            }
+        }
     }
+
+    /// The data only records facilities that are present, so absence is unverified, never "no".
+    enum FacilityStatus: Sendable { case available, notVerified }
+
+    enum LeashPolicy: Sendable {
+        /// Mapped as a dog park: by OSM definition an area where dogs may run unleashed.
+        case offLeashArea
+        case unknown
+    }
+
+    /// Facilities shown on park cards, in display order.
+    static let facilities: [Tag] = [.water, .fence, .zone, .bag, .shade]
 
     let id: String
     let name: String
@@ -31,23 +64,43 @@ nonisolated struct Spot: Identifiable, Hashable, Sendable {
     let region: String
     /// Taiwan district or US county.
     let subregion: String
-    /// Human-readable place line, e.g. district or "City, ST · address".
-    let detail: String
+    /// Street address when known, otherwise the most specific place available.
+    let address: String
     let tags: Set<Tag>
     let latitude: Double?
     let longitude: Double?
-    var isCustom = false
+    /// OSM `opening_hours` text as mapped, e.g. "Mo-Su 06:00-22:00"; nil when unknown.
+    var openingHours: String?
+    var source = Source.openStreetMap
 
+    var isCustom: Bool { source == .userAdded }
+    var coordinate: CLLocationCoordinate2D? {
+        guard let latitude, let longitude else { return nil }
+        return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
     var location: CLLocation? {
         guard let latitude, let longitude else { return nil }
         return CLLocation(latitude: latitude, longitude: longitude)
     }
+
+    func status(_ facility: Tag) -> FacilityStatus { tags.contains(facility) ? .available : .notVerified }
+    var leashPolicy: LeashPolicy { tags.contains(.offLeash) ? .offLeashArea : .unknown }
+    /// Mapped hours, or the 24-hour tag when no hours text exists.
+    var hoursDescription: String? { openingHours ?? (tags.contains(.allDay) ? "24/7" : nil) }
+
+    func distance(from origin: CLLocation?) -> CLLocationDistance? {
+        guard let origin, let location else { return nil }
+        return location.distance(from: origin)
+    }
+
     /// Grass or off-leash space, where big dogs are easier to meet.
     var isField: Bool { tags.contains(.grass) || tags.contains(.offLeash) }
     /// Water or waste stations earn a treat bonus once per day.
     var hasAmenities: Bool { tags.contains(.water) || tags.contains(.bag) }
 
     static let indoorID = "indoor"
+    /// AppStorage key for the park chosen with "Go", used by the next walk.
+    static let plannedStorageKey = "leash.plannedSpotID"
 }
 
 /// A spot the user added. Stored on device without coordinates.
@@ -60,8 +113,8 @@ struct CustomSpot: Codable, Identifiable, Equatable {
     var region: String
 
     var spot: Spot {
-        Spot(id: id, name: name, country: country, region: region, subregion: "", detail: area,
-             tags: tags, latitude: nil, longitude: nil, isCustom: true)
+        Spot(id: id, name: name, country: country, region: region, subregion: "", address: area,
+             tags: tags, latitude: nil, longitude: nil, source: .userAdded)
     }
 }
 

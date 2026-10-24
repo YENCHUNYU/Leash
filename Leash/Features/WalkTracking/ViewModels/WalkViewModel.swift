@@ -12,12 +12,16 @@ final class WalkViewModel {
     private let store: any WalkStoring
     private let location: any LocationTracking
     private var previousLocation: CLLocation?
+    private(set) var authorization: CLAuthorizationStatus
+    /// Most recent accurate fix, kept even when no walk is running.
+    private(set) var lastFix: CLLocation?
+    private var wantsCurrentLocation = false
 
     var activeWalk: Walk? { archive.active }
     /// Latest route point during a walk, otherwise Core Location's cached fix.
     var currentLocation: CLLocation? {
         if let point = archive.active?.route.last { return CLLocation(latitude: point.latitude, longitude: point.longitude) }
-        return location.lastLocation
+        return lastFix ?? location.lastLocation
     }
     var totalMinutes: Int {
         Int(archive.completed.reduce(0) { $0 + $1.duration(at: .now) } / 60)
@@ -26,8 +30,9 @@ final class WalkViewModel {
     init(store: any WalkStoring, location: any LocationTracking) {
         self.store = store
         self.location = location
+        authorization = location.authorization
         location.onLocation = { [weak self] in self?.receive($0) }
-        location.onStatusChange = { [weak self] in self?.updateAuthorization() }
+        location.onStatusChange = { [weak self] in self?.authorizationChanged() }
         location.onError = { [weak self] _ in self?.gpsStatus = .failed }
         reload()
     }
@@ -97,6 +102,28 @@ final class WalkViewModel {
         saveActive(walk)
     }
 
+    /// Finds the user without starting a walk, asking for permission first if needed.
+    func locateUser() {
+        switch location.authorization {
+        case .notDetermined:
+            wantsCurrentLocation = true
+            location.requestPermission()
+        case .authorizedAlways, .authorizedWhenInUse:
+            location.requestCurrentLocation()
+        default:
+            break
+        }
+    }
+
+    private func authorizationChanged() {
+        authorization = location.authorization
+        updateAuthorization()
+        if wantsCurrentLocation, authorization == .authorizedWhenInUse || authorization == .authorizedAlways {
+            wantsCurrentLocation = false
+            location.requestCurrentLocation()
+        }
+    }
+
     func updateAuthorization() {
         guard archive.active != nil else { return }
         switch location.authorization {
@@ -116,6 +143,7 @@ final class WalkViewModel {
     }
 
     private func receive(_ fix: CLLocation) {
+        if fix.horizontalAccuracy >= 0, fix.horizontalAccuracy <= 100 { lastFix = fix }
         guard var walk = archive.active else { return }
         switch RouteFilter.evaluate(fix, previous: previousLocation, walk: walk) {
         case .inaccurate:

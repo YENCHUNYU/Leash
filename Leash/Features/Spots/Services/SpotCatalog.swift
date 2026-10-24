@@ -41,7 +41,7 @@ final class SpotCatalog {
         index = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
-    /// Rows are [id, name, county, area, tagBits, lat, lon, note] plus a US county column.
+    /// Rows are [id, name, county, area, tagBits, lat, lon, openingHours] plus a US county column.
     nonisolated static func decode(_ url: URL) -> [Spot] {
         guard let data = try? Data(contentsOf: url),
               let rows = try? JSONSerialization.jsonObject(with: data) as? [[Any]] else { return [] }
@@ -51,14 +51,15 @@ final class SpotCatalog {
             let tags = Set(Spot.Tag.allCases.filter { bits >> $0.rawValue & 1 == 1 })
             let latitude = row[5] as? Double, longitude = row[6] as? Double
             let name = rawName.hasPrefix("Dog Park · ") ? "Dog Park" : rawName
+            let hours = (row[7] as? String).flatMap { $0.isEmpty ? nil : $0 }
             if row.count >= 9 {
                 let state = locality.split(separator: " ").last.map(String.init) ?? ""
                 return Spot(id: "osm" + id, name: name, country: .unitedStates, region: state,
-                            subregion: row[8] as? String ?? "", detail: [locality, area].filter { !$0.isEmpty }.joined(separator: " · "),
-                            tags: tags, latitude: latitude, longitude: longitude)
+                            subregion: row[8] as? String ?? "", address: [area, locality].filter { !$0.isEmpty }.joined(separator: ", "),
+                            tags: tags, latitude: latitude, longitude: longitude, openingHours: hours)
             }
             return Spot(id: "osm" + id, name: name, country: .taiwan, region: locality, subregion: area,
-                        detail: area, tags: tags, latitude: latitude, longitude: longitude)
+                        address: locality + area, tags: tags, latitude: latitude, longitude: longitude, openingHours: hours)
         }
     }
 }

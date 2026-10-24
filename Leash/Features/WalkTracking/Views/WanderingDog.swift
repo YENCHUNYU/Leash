@@ -7,7 +7,7 @@ struct WanderingDog: View {
     var scarf: UInt32 = DogProfile.scarves[0]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
-    @State private var position = CGPoint(x: 0.4, y: 0.68)
+    @State private var position = CGPoint(x: 0.4, y: 0.66)
     @State private var facingLeft = false
     @State private var walking = false
 
@@ -35,7 +35,7 @@ struct WanderingDog: View {
             do {
                 while !Task.isCancelled {
                     try await Task.sleep(for: .seconds(Double.random(in: 1.5...3.5)))
-                    let target = CGPoint(x: Double.random(in: 0.18...0.80), y: Double.random(in: 0.59...0.79))
+                    let target = CGPoint(x: Double.random(in: 0.18...0.80), y: Double.random(in: 0.58...0.72))
                     facingLeft = target.x < position.x
                     walking = true
                     withAnimation(.linear(duration: 2.2)) { position = target }

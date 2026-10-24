@@ -10,6 +10,8 @@ protocol LocationTracking: AnyObject {
     var onStatusChange: (() -> Void)? { get set }
     var onError: ((Error) -> Void)? { get set }
     func requestPermission()
+    /// One fix without starting continuous updates, e.g. to sort parks by distance.
+    func requestCurrentLocation()
     func start()
     func stop()
 }
@@ -32,6 +34,7 @@ final class LocationService: NSObject, LocationTracking, @preconcurrency CLLocat
     }
 
     func requestPermission() { manager.requestWhenInUseAuthorization() }
+    func requestCurrentLocation() { manager.requestLocation() }
     func start() {
         // Enable background updates only after the host app configures the capability.
         let modes = Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String] ?? []

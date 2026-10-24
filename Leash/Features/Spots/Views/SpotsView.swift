@@ -1,177 +1,188 @@
 import SwiftUI
 import CoreLocation
 
-/// Dog parks nearest first. "Go" starts a walk there; during a walk, "Here" sets the current spot.
+/// Discover dog parks near you on a map or list. Selecting one opens details with directions.
 struct SpotsView: View {
     let model: WalkViewModel
+    /// Called when a walk starts or its spot changes, so the caller can close the sheet.
     let onChosen: () -> Void
     @Environment(SpotCatalog.self) private var spots
-    @Environment(Toaster.self) private var toaster
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.appLanguage) private var language
-    @State private var query = ""
-    @State private var filters: Set<Spot.Tag> = []
-    @State private var region: String?
-    @State private var subregion: String?
+    @Environment(\.openURL) private var openURL
+    @AppStorage(Spot.plannedStorageKey) private var plannedID = ""
+    @State private var query = ParkQuery()
+    @State private var showingMap = true
+    @State private var selectedID: String?
     @State private var limit = 30
     @State private var addingSpot = false
 
-    private struct Result: Identifiable {
-        let spot: Spot
-        let meters: CLLocationDistance?
-        var id: String { spot.id }
-    }
-
     var body: some View {
-        let reference = referencePoint
-        let results = filtered(from: reference.location)
-        List {
-            Section {
-                tagChips
-                regionPicker
-                Text(spots.isLoaded ? "\(language.text("\(results.count.formatted()) spots", "\(results.count.formatted()) 個地點")) · \(reference.label)"
-                                    : language.text("Loading dog parks…", "載入地點中…"))
-                    .font(.caption).foregroundStyle(.secondary)
+        let user = model.currentLocation
+        let origin = sortOrigin(user: user)
+        let parks = query.apply(to: spots.all, origin: origin.location)
+        VStack(spacing: 8) {
+            Picker(language.text("View", "檢視"), selection: $showingMap) {
+                Label(language.text("Map", "地圖"), systemImage: "map").tag(true)
+                Label(language.text("List", "列表"), systemImage: "list.bullet").tag(false)
             }
-            .listRowBackground(Color.clear).listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
-
-            Section {
-                ForEach(results.prefix(limit)) { row($0) }
-                if results.isEmpty && spots.isLoaded {
-                    Text(language.text("Nothing found, try fewer filters", "找不到，少選幾個條件")).foregroundStyle(.secondary)
-                }
-                if results.count > limit {
-                    Button(language.text("Show more", "顯示更多")) { limit += 30 }
-                }
-            }
-
-            Section {
-                Button(language.text("+ Add a spot", "＋ 新增地點")) { addingSpot = true }
-            } footer: {
-                Text(language.text("Dog parks from OpenStreetMap (© OpenStreetMap contributors). Data may be incomplete or out of date, so check before you go.",
-                                   "地點資料來自 OpenStreetMap（© OpenStreetMap contributors），可能不完整或過時，出發前請再確認現場。"))
+            .pickerStyle(.segmented).padding(.horizontal, 16)
+            filterChips
+            locationBanner(user: user)
+            if showingMap {
+                ParkMapView(parks: parks, userLocation: user, fallbackCenter: origin.location,
+                            plannedID: plannedID.isEmpty ? nil : plannedID, selection: $selectedID)
+            } else {
+                list(parks, user: user, originLabel: origin.label)
             }
         }
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: language.text("Park or city", "地名、區域"))
-        .scrollContentBackground(.hidden).background(Theme.background(colorScheme))
+        .searchable(text: $query.text, placement: .navigationBarDrawer(displayMode: .always), prompt: language.text("Park, city or area", "地點、城市或區域"))
+        .background(Theme.background(colorScheme))
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) { regionMenu }
+        }
+        .onAppear { model.locateUser() }
         .onChange(of: query) { limit = 30 }
-        .onChange(of: filters) { limit = 30 }
+        .sheet(item: Binding(get: { selectedID.flatMap(spots.spot(id:)) }, set: { selectedID = $0?.id })) { spot in
+            NavigationStack {
+                ParkDetailView(spot: spot, distance: spot.distance(from: user), model: model, onWalkChanged: onChosen)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button(language.text("Close", "關閉")) { selectedID = nil } } }
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $addingSpot) { AddSpotView() }
     }
 
-    // MARK: Filtering
+    // MARK: Sorting origin
 
-    private var referencePoint: (location: CLLocation, label: String) {
-        if let region {
-            let inRegion = spots.all.filter { $0.region == region && (subregion == nil || $0.subregion == subregion) }.compactMap(\.location)
+    /// Where "nearest" is measured from: a chosen region, the user, or a default city.
+    private func sortOrigin(user: CLLocation?) -> (location: CLLocation, label: String) {
+        if let region = query.region {
+            let inRegion = spots.all.filter { $0.region == region && (query.subregion == nil || $0.subregion == query.subregion) }.compactMap(\.location)
             if !inRegion.isEmpty {
                 let latitude = inRegion.map(\.coordinate.latitude).reduce(0, +) / Double(inRegion.count)
                 let longitude = inRegion.map(\.coordinate.longitude).reduce(0, +) / Double(inRegion.count)
-                return (CLLocation(latitude: latitude, longitude: longitude),
-                        language.text("\(placeName) · nearest first", "\(placeName) · 由近到遠"))
+                let place = [query.subregion, Regions.displayName(region)].compactMap { $0 }.joined(separator: ", ")
+                return (CLLocation(latitude: latitude, longitude: longitude), language.text("Around \(place)", "\(place)周邊"))
             }
         }
-        if let location = model.currentLocation {
-            return (location, language.text("Nearest to you", "離你最近"))
-        }
+        if let user { return (user, language.text("Nearest to you", "離你最近")) }
         return language == .english
-            ? (CLLocation(latitude: 33.6846, longitude: -117.8265), "Nearest to Irvine, CA")
-            : (CLLocation(latitude: 25.0478, longitude: 121.517), "以台北為中心")
+            ? (CLLocation(latitude: 33.6846, longitude: -117.8265), "Around Irvine, CA (location off)")
+            : (CLLocation(latitude: 25.0478, longitude: 121.517), "以台北為中心（未開啟定位）")
     }
 
-    private var placeName: String {
-        [subregion, region.map(Regions.displayName)].compactMap { $0 }.joined(separator: ", ")
-    }
+    // MARK: Controls
 
-    private func filtered(from origin: CLLocation) -> [Result] {
-        let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
-        return spots.all
-            .filter { spot in
-                (region == nil || spot.region == region) && (subregion == nil || spot.subregion == subregion)
-                    && filters.isSubset(of: spot.tags)
-                    && (needle.isEmpty || "\(spot.name) \(spot.detail) \(spot.region) \(spot.subregion)".lowercased().contains(needle))
-            }
-            .map { Result(spot: $0, meters: $0.location?.distance(from: origin)) }
-            .sorted { ($0.meters ?? .infinity) < ($1.meters ?? .infinity) }
-    }
-
-    // MARK: Rows and controls
-
-    private func row(_ result: Result) -> some View {
-        let spot = result.spot
-        let visits = model.archive.completed.filter { $0.spotID == spot.id }.count
-        var line = spot.detail.isEmpty ? Regions.displayName(spot.region) : spot.detail
-        if let meters = result.meters { line += " · " + WalkFormat.distance(meters: meters, locale: language.locale) }
-        if visits > 0 { line += language.text(" · visited \(visits)×", " ・去過 \(visits) 次") }
-        return HStack(alignment: .top, spacing: 10) {
-            PixelIcon(glyph: .map).frame(width: 22, height: 22)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(spot.name).font(.headline)
-                Text(line).font(.caption).foregroundStyle(.secondary)
-                if !spot.tags.isEmpty {
-                    Text(Spot.Tag.allCases.filter(spot.tags.contains).map { $0.label(in: language) }.joined(separator: " · "))
-                        .font(.caption2).foregroundStyle(Theme.good)
-                }
-            }
-            Spacer()
-            Button(model.activeWalk == nil ? language.text("Go", "出發") : language.text("Here", "在這")) { choose(spot) }
-                .buttonStyle(.borderedProminent).foregroundStyle(Theme.ink).disabled(!model.canWrite)
-        }
-        .padding(.vertical, 2)
-    }
-
-    private var tagChips: some View {
+    private var filterChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                ForEach(Spot.Tag.allCases, id: \.self) { tag in
-                    let on = filters.contains(tag)
-                    Button(tag.label(in: language)) {
-                        if on { filters.remove(tag) } else { filters.insert(tag) }
+                ForEach(ParkFilter.allCases, id: \.self) { filter in
+                    let on = query.filters.contains(filter)
+                    Button {
+                        if on { query.filters.remove(filter) } else { query.filters.insert(filter) }
+                    } label: {
+                        Label(filter.label(in: language), systemImage: filter.systemImage)
+                            .font(.caption).padding(.horizontal, 10).padding(.vertical, 7)
+                            .foregroundStyle(on ? Theme.ink : .primary)
+                            .background(on ? Theme.accent : Theme.surface(colorScheme), in: Capsule())
                     }
-                    .font(.caption).padding(.horizontal, 10).padding(.vertical, 6)
-                    .foregroundStyle(on ? Theme.ink : .primary)
-                    .background(on ? Theme.accent : Theme.surface(colorScheme), in: Capsule())
                     .accessibilityAddTraits(on ? .isSelected : [])
                 }
             }
+            .padding(.horizontal, 16)
         }
     }
 
-    private var regionPicker: some View {
+    @ViewBuilder private func locationBanner(user: CLLocation?) -> some View {
+        switch model.authorization {
+        case .denied, .restricted:
+            banner(language.text("Location is off, so distances are hidden.", "未開啟定位，無法顯示距離。"),
+                   action: language.text("Settings", "設定")) {
+                if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+            }
+        case .notDetermined:
+            banner(language.text("Show parks near you?", "顯示你附近的地點？"), action: language.text("Use my location", "使用我的位置")) {
+                model.locateUser()
+            }
+        default:
+            if user == nil {
+                Label(language.text("Finding your location…", "正在取得你的位置…"), systemImage: "location")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func banner(_ text: String, action: String, perform: @escaping () -> Void) -> some View {
+        HStack {
+            Image(systemName: "location.slash")
+            Text(text).font(.footnote)
+            Spacer()
+            Button(action, action: perform).font(.footnote.weight(.semibold))
+        }
+        .padding(10)
+        .background(Theme.surface(colorScheme), in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 16)
+    }
+
+    /// Existing region selection, kept from the original Spots screen.
+    private var regionMenu: some View {
         let counts = Dictionary(spots.all.map { ($0.region, 1) }, uniquingKeysWith: +)
         let ordered = (language == .english ? Regions.unitedStates.keys.sorted() + Regions.taiwan
                                             : Regions.taiwan + Regions.unitedStates.keys.sorted()).filter { counts[$0] != nil }
-        let subregions = region.map { selected in
+        let subregions = query.region.map { selected in
             Dictionary(spots.all.filter { $0.region == selected && !$0.subregion.isEmpty }.map { ($0.subregion, 1) }, uniquingKeysWith: +)
         } ?? [:]
-        return HStack {
-            Menu {
-                Button(language.text("Nearest first", "由近到遠")) { region = nil; subregion = nil; limit = 30 }
-                ForEach(ordered, id: \.self) { name in
-                    Button("\(Regions.displayName(name)) (\(counts[name] ?? 0))") { region = name; subregion = nil; limit = 30 }
-                }
-            } label: {
-                Label(region.map(Regions.displayName) ?? language.text("Choose a region", "選擇地區"), systemImage: "mappin.and.ellipse")
-            }
+        return Menu {
+            Button(language.text("Near me", "我附近")) { query.region = nil; query.subregion = nil }
             if subregions.count > 1 {
-                Menu {
-                    Button(language.text("All areas", "全部鄉鎮市區")) { subregion = nil; limit = 30 }
-                    ForEach(subregions.keys.sorted { subregions[$0]! > subregions[$1]! || (subregions[$0] == subregions[$1] && $0 < $1) }, id: \.self) { name in
-                        Button("\(name) (\(subregions[name] ?? 0))") { subregion = name; limit = 30 }
+                Menu(language.text("Area", "鄉鎮市區")) {
+                    Button(language.text("All areas", "全部鄉鎮市區")) { query.subregion = nil }
+                    ForEach(subregions.keys.sorted(), id: \.self) { name in
+                        Button("\(name) (\(subregions[name] ?? 0))") { query.subregion = name }
                     }
-                } label: {
-                    Text(subregion ?? language.text("All areas", "全部鄉鎮市區"))
                 }
             }
+            Divider()
+            ForEach(ordered, id: \.self) { name in
+                Button("\(Regions.displayName(name)) (\(counts[name] ?? 0))") { query.region = name; query.subregion = nil }
+            }
+        } label: {
+            Label(query.region.map(Regions.displayName) ?? language.text("Region", "地區"), systemImage: "mappin.and.ellipse")
         }
-        .font(.subheadline)
     }
 
-    private func choose(_ spot: Spot) {
-        if model.activeWalk == nil { model.start(at: spot.id) } else { model.setSpot(spot.id) }
-        guard model.activeWalk?.spotID == spot.id else { return }
-        toaster.show("📍 \(spot.name)")
-        onChosen()
+    // MARK: List
+
+    private func list(_ parks: [Spot], user: CLLocation?, originLabel: String) -> some View {
+        List {
+            Section {
+                ForEach(parks.prefix(limit)) { spot in
+                    Button { selectedID = spot.id } label: {
+                        ParkRow(spot: spot, distance: spot.distance(from: user), isPlanned: spot.id == plannedID)
+                    }
+                    .buttonStyle(.plain)
+                }
+                if parks.isEmpty && spots.isLoaded {
+                    Text(language.text("Nothing found, try fewer filters", "找不到，少選幾個條件")).foregroundStyle(.secondary)
+                }
+                if parks.count > limit {
+                    Button(language.text("Show more", "顯示更多")) { limit += 30 }
+                }
+            } header: {
+                Text(spots.isLoaded ? "\(language.text("\(parks.count.formatted()) parks", "\(parks.count.formatted()) 個地點")) · \(originLabel)"
+                                    : language.text("Loading dog parks…", "載入地點中…"))
+            }
+            Section {
+                Button(language.text("+ Add a spot", "＋ 新增地點")) { addingSpot = true }
+            } footer: {
+                Text(language.text("Dog parks from a bundled OpenStreetMap snapshot (© OpenStreetMap contributors). It may be incomplete or out of date; most facilities aren't mapped, so they show as \"Not verified\". Every mapped dog park counts as an off-leash area, so that filter won't narrow results much.",
+                                   "地點來自內建的 OpenStreetMap 快照（© OpenStreetMap contributors），可能不完整或過時；多數設施沒有標註，因此顯示為「未確認」。所有狗公園都標示為可放繩區，所以這個篩選條件影響不大。"))
+            }
+        }
+        .scrollContentBackground(.hidden)
     }
 }
 

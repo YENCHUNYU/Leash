@@ -17,6 +17,7 @@ struct WalkHomeView: View {
     @State private var showingLibraryPicker = false
     @State private var pickedItem: PhotosPickerItem?
     @State private var arrivals = 0
+    @AppStorage(Spot.plannedStorageKey) private var plannedID = ""
     private func t(_ english: String, _ chinese: String) -> String { language.text(english, chinese) }
     private var surface: Color { Theme.surface(colorScheme) }
 
@@ -95,7 +96,7 @@ struct WalkHomeView: View {
                         Button(t("Reload walks", "重新載入散步紀錄")) { model.reload() }
                             .padding(10).background(.regularMaterial, in: Capsule())
                     }
-                    if let walk { walkBar(walk) } else { dock }
+                    if let walk { walkBar(walk) } else { startControls; dock }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, safeArea.top + 12)
@@ -177,18 +178,57 @@ struct WalkHomeView: View {
         .accessibilityValue(badge ?? "")
     }
 
-    /// Hit area over the door in the room artwork.
+    /// The door in the room artwork also starts a walk; hidden from VoiceOver, which uses the Start button.
     private func door(in size: CGSize) -> some View {
-        Button { model.start() } label: {
-            VStack {
-                if model.archive.completed.isEmpty { pill(t("Tap the door", "點門出門")) }
-                Color.clear
+        Button(action: startWalk) { Color.clear }
+            .disabled(!model.canWrite)
+            .frame(width: size.width * 0.32, height: size.height * 0.32)
+            .position(x: size.width * 0.78, y: size.height * 0.31)
+            .accessibilityHidden(true)
+    }
+
+    /// Floating Start button, plus the park saved with "Go" that the walk will be linked to.
+    private var startControls: some View {
+        let planned = spots.spot(id: plannedID.isEmpty ? nil : plannedID)
+        return VStack(spacing: 8) {
+            if let planned {
+                HStack(spacing: 6) {
+                    Button { sheet = .spots } label: {
+                        Label(planned.name, systemImage: "flag.fill").lineLimit(1)
+                    }
+                    Button { plannedID = "" } label: { Image(systemName: "xmark.circle.fill") }
+                        .accessibilityLabel(t("Clear saved park", "清除已選地點"))
+                }
+                .font(.system(.footnote, design: .monospaced))
+                .padding(.horizontal, 12).padding(.vertical, 7)
+                .foregroundStyle(.white).background(Theme.overlay, in: Capsule())
             }
+            Button(action: startWalk) {
+                VStack(spacing: 2) {
+                    Image(systemName: "pawprint.fill").font(.system(size: 28, weight: .bold))
+                    Text(t("Start walk", "開始散步")).font(.system(.caption2, design: .monospaced).weight(.bold))
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                }
+                .foregroundStyle(Theme.ink)
+                .frame(width: 84, height: 84)
+                .background(Theme.accent, in: Circle())
+                .overlay { Circle().stroke(Theme.ink, lineWidth: 3) }
+                // Hard offset shadow, like the pixel-art pills.
+                .background { Circle().fill(Theme.ink.opacity(0.35)).offset(y: 4) }
+            }
+            .buttonStyle(.plain)
+            .disabled(!model.canWrite)
+            .accessibilityLabel(t("Start walk", "開始散步"))
+            .accessibilityHint(planned.map { t("Walk at \($0.name)", "在 \($0.name) 散步") } ?? t("Starts tracking your walk", "開始記錄散步"))
+            .sensoryFeedback(.impact(weight: .medium), trigger: model.activeWalk?.id)
         }
-        .disabled(!model.canWrite)
-        .frame(width: size.width * 0.32, height: size.height * 0.32)
-        .position(x: size.width * 0.78, y: size.height * 0.31)
-        .accessibilityLabel(t("Go for a walk", "出門散步"))
+    }
+
+    /// Starts tracking, linked to the saved park if there is one.
+    private func startWalk() {
+        let planned = plannedID.isEmpty ? nil : plannedID
+        model.start(at: spots.spot(id: planned) == nil ? nil : planned)
+        if model.activeWalk != nil { plannedID = "" }
     }
 
     // MARK: Walking
