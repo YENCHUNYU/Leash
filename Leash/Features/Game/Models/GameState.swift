@@ -31,7 +31,11 @@ struct GameState: Codable, Equatable {
 struct DogProfile: Codable, Equatable {
     var name = ""
     var breedID = "mixy"
+    /// Collar color (stored as "scarf" from when it was a bandana).
     var scarf: UInt32 = Self.scarves[0]
+    /// The user's own dog read from a photo, and whether it's the current look instead of `breedID`.
+    var photoLook: DogLook?
+    var usesPhoto = false
 
     static let scarves: [UInt32] = [0xE2574C, 0x4E8FD8, 0xF4B63F, 0x5BAF6A, 0xB06FD0, 0xF28CA0, 0x2B2533, 0xFFFFFF, 0x3FB8B0, 0xF07B3F]
     /// Three colors to start, one more every two levels.
@@ -48,6 +52,8 @@ struct DogProfile: Codable, Equatable {
         name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
         breedID = try container.decodeIfPresent(String.self, forKey: .breedID) ?? "mixy"
         scarf = try container.decodeIfPresent(UInt32.self, forKey: .scarf) ?? Self.scarves[0]
+        photoLook = try? container.decodeIfPresent(DogLook.self, forKey: .photoLook)
+        usesPhoto = (try? container.decodeIfPresent(Bool.self, forKey: .usesPhoto)) ?? false
     }
 }
 

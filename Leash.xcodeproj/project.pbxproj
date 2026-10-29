@@ -328,7 +328,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Leash;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Leash uses the camera to save photos from your dog walks.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Leash uses the camera to save photos from your dog walks and to turn your dog into a pixel sprite.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Leash uses your location to record your dog walking route and distance.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -370,7 +370,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Leash;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Leash uses the camera to save photos from your dog walks.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Leash uses the camera to save photos from your dog walks and to turn your dog into a pixel sprite.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Leash uses your location to record your dog walking route and distance.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;

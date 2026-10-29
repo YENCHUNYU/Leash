@@ -5,6 +5,7 @@ struct WanderingDog: View {
     let name: String
     var breed = Breed.named("mixy")
     var scarf: UInt32 = DogProfile.scarves[0]
+    var look: DogLook? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @State private var position = CGPoint(x: 0.4, y: 0.66)
@@ -17,7 +18,7 @@ struct WanderingDog: View {
             VStack(spacing: 4) {
                 TimelineView(.animation(minimumInterval: 0.15, paused: reduceMotion || scenePhase != .active)) { context in
                     let beat = Int(context.date.timeIntervalSinceReferenceDate * (walking ? 4 : 1.25)) % 2
-                    PixelDog(breed: breed, scarf: scarf).frame(width: side, height: side)
+                    PixelDog(breed: breed, scarf: scarf, look: look).frame(width: side, height: side)
                         .scaleEffect(x: facingLeft ? -1 : 1, y: 1)
                         .offset(y: reduceMotion ? 0 : (beat == 0 ? 0 : -3))
                 }

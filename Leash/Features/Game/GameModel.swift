@@ -36,6 +36,8 @@ final class GameModel {
     }
 
     var dogBreed: Breed { Breed.named(profile.breedID) }
+    /// The user's own dog from a photo, when it's the chosen look.
+    var dogLook: DogLook? { profile.usesPhoto ? profile.photoLook : nil }
 
     func quests(language: AppLanguage) -> [Quest] { Quest.daily(progress, language: language) }
 

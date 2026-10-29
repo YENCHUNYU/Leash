@@ -222,3 +222,81 @@ struct SpotAndWalkDataTests {
         #expect(!walk.isIndoor)
     }
 }
+
+struct DogLookTests {
+    /// A 40×40 "dog": tan body, cream lower half on the left (snout side), dark ears, transparent border.
+    private func bitmap() -> DogAnalyzer.Bitmap {
+        let side = 40
+        var bytes = [UInt8](repeating: 0, count: side * side * 4)
+        for y in 4..<36 {
+            for x in 4..<36 {
+                let color: [UInt8] = y < 10 ? [60, 40, 30] : (y > 22 && x < 20 ? [245, 235, 215] : [200, 140, 70])
+                bytes.replaceSubrange((y * side + x) * 4..<(y * side + x) * 4 + 4, with: color + [255])
+            }
+        }
+        return DogAnalyzer.Bitmap(width: side, height: side, bytes: bytes)
+    }
+
+    /// Landmarks in Vision's normalized, bottom-left coordinates.
+    private func marks(earTipAboveBase: Bool) -> DogAnalyzer.Landmarks {
+        var marks = DogAnalyzer.Landmarks()
+        marks.nose = CGPoint(x: 0.2, y: 0.3)
+        marks.eyes = [CGPoint(x: 0.3, y: 0.55)]
+        let base = CGPoint(x: 0.5, y: 0.82)
+        let tip = CGPoint(x: 0.5, y: earTipAboveBase ? 0.88 : 0.76)
+        marks.ears = [(top: tip, middle: CGPoint(x: 0.5, y: 0.85), bottom: base)]
+        return marks
+    }
+
+    @Test func earTipAboveBaseMeansPointyEars() throws {
+        #expect(try DogAnalyzer.look(bitmap(), landmarks: marks(earTipAboveBase: true)).ears == .pricked)
+        #expect(try DogAnalyzer.look(bitmap(), landmarks: marks(earTipAboveBase: false)).ears == .floppy)
+    }
+
+    @Test func readsCoatEarAndMuzzleColors() throws {
+        let look = try DogAnalyzer.look(bitmap(), landmarks: marks(earTipAboveBase: true))
+        func luminance(_ hex: UInt32) -> Double {
+            0.299 * Double(hex >> 16 & 255) + 0.587 * Double(hex >> 8 & 255) + 0.114 * Double(hex & 255)
+        }
+        #expect(luminance(look.earColor) < 80)                       // dark ears
+        #expect(luminance(look.muzzle) > luminance(look.coat) + 30)   // cream snout on a tan dog
+        #expect(look.photoColors.count >= 2)
+    }
+
+    @Test func findsRedCollarAtTheNeck() throws {
+        var image = bitmap()
+        // A red band across rows 26–28, where the neck landmark below points.
+        for y in 26...28 { for x in 20..<36 { image.bytes.replaceSubrange((y * 40 + x) * 4..<(y * 40 + x) * 4 + 3, with: [200, 30, 40]) } }
+        var marks = marks(earTipAboveBase: true)
+        marks.nose = CGPoint(x: 0.15, y: 0.6)
+        marks.eyes = [CGPoint(x: 0.6, y: 0.7)]
+        marks.neck = CGPoint(x: 0.7, y: 0.32)
+        let collar = try #require(DogAnalyzer.look(image, landmarks: marks).collar)
+        #expect(collar >> 16 & 255 > 150 && collar >> 8 & 255 < 80)   // red
+        #expect(try DogAnalyzer.look(bitmap(), landmarks: marks).collar == nil)
+    }
+
+    @Test func emptyPhotoHasNoDog() {
+        let empty = DogAnalyzer.Bitmap(width: 20, height: 20, bytes: [UInt8](repeating: 0, count: 20 * 20 * 4))
+        #expect(throws: DogAnalyzer.Failure.self) { try DogAnalyzer.look(empty, landmarks: nil) }
+    }
+
+    @Test func spriteUsesLookColors() {
+        let look = DogLook(ears: .pricked, coat: 0xC08040, earColor: 0x302020, muzzle: 0xFFF0E0, chest: 0xFFFFFF, paws: 0x101010)
+        let pixels = DogSprite.pixels(look: look, scarf: 0xE2574C)
+        func color(_ x: Int, _ y: Int) -> UInt32? { pixels.first { $0.x == x && $0.y == y }?.color }
+        #expect(color(2, 2) == 0x302020)    // ear flap
+        #expect(color(5, 8) == 0xFFF0E0)    // muzzle
+        #expect(color(7, 13) == 0xFFFFFF)   // chest
+        #expect(color(5, 11) == 0xE2574C)   // collar
+        #expect(color(7, 12) == DogSprite.tag)
+        #expect(color(3, 14) == 0x101010)   // paw
+        #expect(color(6, 5) == 0xC08040)    // forehead
+    }
+
+    @Test func oldProfilesDecodeWithoutPhotoLook() throws {
+        let profile = try JSONDecoder().decode(DogProfile.self, from: Data(#"{"name":"Mochi","breedID":"corgi","scarf":1}"#.utf8))
+        #expect(profile.photoLook == nil)
+        #expect(profile.usesPhoto == false)
+    }
+}

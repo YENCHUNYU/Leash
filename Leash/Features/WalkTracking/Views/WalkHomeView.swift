@@ -87,7 +87,7 @@ struct WalkHomeView: View {
             ZStack(alignment: .topLeading) {
                 PixelScene(outdoors: walk != nil)
                 WanderingDog(outdoors: walk != nil, name: game.profile.displayName(in: language),
-                             breed: game.dogBreed, scarf: game.profile.scarf)
+                             breed: game.dogBreed, scarf: game.profile.scarf, look: game.dogLook)
                 if walk != nil { visitor(in: size) }
                 if walk == nil { door(in: size) }
                 VStack(spacing: 10) {
@@ -112,7 +112,7 @@ struct WalkHomeView: View {
         return HStack(spacing: 6) {
             Button { sheet = .profile } label: {
                 HStack(spacing: 6) {
-                    PixelDog(breed: game.dogBreed, scarf: game.profile.scarf).frame(width: 24, height: 24)
+                    PixelDog(breed: game.dogBreed, scarf: game.profile.scarf, look: game.dogLook).frame(width: 24, height: 24)
                     Text(game.profile.displayName(in: language)).lineLimit(1)
                 }
                 .font(.system(.headline, design: .monospaced)).padding(.horizontal, 12).padding(.vertical, 8)
