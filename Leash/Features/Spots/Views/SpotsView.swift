@@ -4,6 +4,8 @@ import CoreLocation
 /// Discover dog parks near you on a map or list. Selecting one opens details with directions.
 struct SpotsView: View {
     let model: WalkViewModel
+    /// Opens with the search field focused, when reached from the home search bar.
+    var startSearching = false
     /// Called when a walk starts or its spot changes, so the caller can close the sheet.
     let onChosen: () -> Void
     @Environment(SpotCatalog.self) private var spots
@@ -16,6 +18,7 @@ struct SpotsView: View {
     @State private var selectedID: String?
     @State private var limit = 30
     @State private var addingSpot = false
+    @State private var searching = false
 
     var body: some View {
         let user = model.currentLocation
@@ -36,12 +39,15 @@ struct SpotsView: View {
                 list(parks, user: user, originLabel: origin.label)
             }
         }
-        .searchable(text: $query.text, placement: .navigationBarDrawer(displayMode: .always), prompt: language.text("Park, city or area", "地點、城市或區域"))
+        .searchable(text: $query.text, isPresented: $searching, placement: .navigationBarDrawer(displayMode: .always), prompt: language.text("Park, city or area", "地點、城市或區域"))
         .background(Theme.background(colorScheme))
         .toolbar {
             ToolbarItem(placement: .primaryAction) { regionMenu }
         }
-        .onAppear { model.locateUser() }
+        .onAppear {
+            model.locateUser()
+            if startSearching { searching = true }
+        }
         .onChange(of: query) { limit = 30 }
         .sheet(item: Binding(get: { selectedID.flatMap(spots.spot(id:)) }, set: { selectedID = $0?.id })) { spot in
             NavigationStack {

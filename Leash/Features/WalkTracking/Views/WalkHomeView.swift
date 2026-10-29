@@ -65,6 +65,7 @@ struct WalkHomeView: View {
         case .dex: DexView()
         case .album: AlbumView()
         case .spots: SpotsView(model: model) { sheet = nil }
+        case .search: SpotsView(model: model, startSearching: true) { sheet = nil }
         case .encounter: EncounterView { sheet = nil }
         case .finished(let walk):
             WalkSummaryView(walk: walk) {
@@ -88,20 +89,20 @@ struct WalkHomeView: View {
                 WanderingDog(outdoors: walk != nil, name: game.profile.displayName(in: language),
                              breed: game.dogBreed, scarf: game.profile.scarf)
                 if walk != nil { visitor(in: size) }
+                if walk == nil { door(in: size) }
                 VStack(spacing: 10) {
                     header
-                    if let walk { walkStatus(walk) }
+                    if let walk { walkStatus(walk) } else { shortcuts }
                     Spacer()
                     if !model.canWrite {
                         Button(t("Reload walks", "重新載入散步紀錄")) { model.reload() }
                             .padding(10).background(.regularMaterial, in: Capsule())
                     }
-                    if let walk { walkBar(walk) } else { startControls; dock }
+                    if let walk { walkBar(walk) } else { startControls }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, safeArea.top + 12)
                 .padding(.bottom, safeArea.bottom + 16)
-                if walk == nil { door(in: size) }
             }
         }
     }
@@ -147,33 +148,36 @@ struct WalkHomeView: View {
 
     // MARK: Indoors
 
-    private var dock: some View {
+    /// Secondary entries: small, quiet chips under the header, out of the thumb zone.
+    private var shortcuts: some View {
         let questsLeft = game.quests(language: language).filter { !$0.isDone }.count
         return HStack(spacing: 6) {
-            dockButton(.diary, t("Diary", "日記")) { sheet = .diary }
-            dockButton(.quest, t("Quests", "任務"), badge: questsLeft > 0 ? "\(3 - questsLeft)/3" : nil) { sheet = .quests }
-            dockButton(.dex, t("Dex", "圖鑑")) { sheet = .dex }
-            dockButton(.album, t("Album", "相簿")) { sheet = .album }
-            dockButton(.map, t("Spots", "地點")) { sheet = .spots }
+            shortcut(.diary, t("Diary", "日記")) { sheet = .diary }
+            shortcut(.quest, t("Quests", "任務"), badge: questsLeft > 0 ? "\(3 - questsLeft)/3" : nil) { sheet = .quests }
+            shortcut(.dex, t("Dex", "圖鑑")) { sheet = .dex }
+            shortcut(.album, t("Album", "相簿")) { sheet = .album }
+            Spacer(minLength: 0)
         }
     }
 
-    private func dockButton(_ glyph: PixelIcon.Glyph, _ label: String, badge: String? = nil, action: @escaping () -> Void) -> some View {
+    private func shortcut(_ glyph: PixelIcon.Glyph, _ label: String, badge: String? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: 4) {
-                PixelIcon(glyph: glyph).frame(width: 28, height: 28)
-                Text(label).font(.system(.caption, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
-            }
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity).padding(.vertical, 9)
-            .background(Theme.overlay, in: RoundedRectangle(cornerRadius: 16))
-            .overlay(alignment: .topTrailing) {
+            HStack(spacing: 4) {
+                PixelIcon(glyph: glyph).frame(width: 16, height: 16)
+                Text(label).font(.system(.caption, design: .monospaced)).lineLimit(1)
                 if let badge {
                     Text(badge).font(.system(.caption2, design: .monospaced)).foregroundStyle(Theme.ink)
-                        .padding(.horizontal, 5).padding(.vertical, 2).background(Theme.accent, in: Capsule()).offset(x: 4, y: -6)
+                        .padding(.horizontal, 4).padding(.vertical, 1).background(Theme.accent, in: Capsule())
                 }
             }
+            .fixedSize()
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .background(surface.opacity(0.8), in: Capsule())
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .accessibilityLabel(label)
         .accessibilityValue(badge ?? "")
     }
@@ -190,7 +194,7 @@ struct WalkHomeView: View {
     /// Floating Start button, plus the park saved with "Go" that the walk will be linked to.
     private var startControls: some View {
         let planned = spots.spot(id: plannedID.isEmpty ? nil : plannedID)
-        return VStack(spacing: 8) {
+        return VStack(spacing: 10) {
             if let planned {
                 HStack(spacing: 6) {
                     Button { sheet = .spots } label: {
@@ -203,18 +207,35 @@ struct WalkHomeView: View {
                 .padding(.horizontal, 12).padding(.vertical, 7)
                 .foregroundStyle(.white).background(Theme.overlay, in: Capsule())
             }
+            Button { sheet = .search } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                    Text(t("Find a park to walk", "搜尋散步地點")).lineLimit(1)
+                    Spacer(minLength: 0)
+                    PixelIcon(glyph: .map).frame(width: 20, height: 20)
+                }
+                .font(.system(.body, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 16)
+                .frame(maxWidth: .infinity, minHeight: 50)
+                .background(surface, in: Capsule())
+                .overlay { Capsule().stroke(Theme.ink.opacity(0.15), lineWidth: 1) }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(t("Search parks", "搜尋地點"))
+            .accessibilityHint(t("Find a park or spot to walk", "找公園或散步地點"))
             Button(action: startWalk) {
-                VStack(spacing: 2) {
-                    Image(systemName: "pawprint.fill").font(.system(size: 28, weight: .bold))
-                    Text(t("Start walk", "開始散步")).font(.system(.caption2, design: .monospaced).weight(.bold))
+                HStack(spacing: 10) {
+                    Image(systemName: "pawprint.fill").font(.system(size: 24, weight: .bold))
+                    Text(t("Start walk", "開始散步")).font(.system(.title3, design: .monospaced).weight(.bold))
                         .lineLimit(1).minimumScaleFactor(0.7)
                 }
                 .foregroundStyle(Theme.ink)
-                .frame(width: 84, height: 84)
-                .background(Theme.accent, in: Circle())
-                .overlay { Circle().stroke(Theme.ink, lineWidth: 3) }
+                .frame(maxWidth: .infinity, minHeight: 64)
+                .background(Theme.accent, in: Capsule())
+                .overlay { Capsule().stroke(Theme.ink, lineWidth: 3) }
                 // Hard offset shadow, like the pixel-art pills.
-                .background { Circle().fill(Theme.ink.opacity(0.35)).offset(y: 4) }
+                .background { Capsule().fill(Theme.ink.opacity(0.35)).offset(y: 4) }
             }
             .buttonStyle(.plain)
             .disabled(!model.canWrite)
@@ -360,7 +381,7 @@ struct WalkHomeView: View {
 }
 
 private enum WalkSheet: Identifiable {
-    case diary, quests, dex, album, spots, profile, settings, route, encounter
+    case diary, quests, dex, album, spots, search, profile, settings, route, encounter
     case finished(Walk)
 
     var id: String {
@@ -378,7 +399,7 @@ private enum WalkSheet: Identifiable {
         case .quests: language.text("Quests", "任務")
         case .dex: language.text("Dex", "圖鑑")
         case .album: language.text("Album", "相簿")
-        case .spots: language.text("Spots", "地點")
+        case .spots, .search: language.text("Spots", "地點")
         case .route: language.text("Current walk", "這次的散步")
         case .encounter: language.text("You met a dog", "遇到狗狗")
         case .finished: language.text("Walk complete", "散步完成")
