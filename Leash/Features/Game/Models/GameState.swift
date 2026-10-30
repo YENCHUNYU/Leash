@@ -40,6 +40,8 @@ struct DogProfile: Codable, Equatable, Identifiable {
     var usesPhoto = false
     /// What the dog is wearing, if anything.
     var accessory: Accessory?
+    /// How much it moves around on screen.
+    var personality = Personality.balanced
 
     static let scarves: [UInt32] = [0xE2574C, 0x4E8FD8, 0xF4B63F, 0x5BAF6A, 0xB06FD0, 0xF28CA0, 0x2B2533, 0xFFFFFF, 0x3FB8B0, 0xF07B3F]
     /// Three colors to start, one more every two levels.
@@ -59,14 +61,65 @@ struct DogProfile: Codable, Equatable, Identifiable {
         scarf = try container.decodeIfPresent(UInt32.self, forKey: .scarf) ?? Self.scarves[0]
         photoLook = try? container.decodeIfPresent(DogLook.self, forKey: .photoLook)
         accessory = try? container.decodeIfPresent(Accessory.self, forKey: .accessory)
+        personality = (try? container.decodeIfPresent(Personality.self, forKey: .personality)) ?? .balanced
         usesPhoto = (try? container.decodeIfPresent(Bool.self, forKey: .usesPhoto)) ?? false
     }
 }
 
-/// All of the user's dogs, and which one is out on screen and on walks.
+/// How a dog behaves on screen: calm dogs mostly stay put, active ones pace and run.
+nonisolated enum Personality: String, Codable, CaseIterable, Identifiable, Sendable {
+    case calm, balanced, active
+
+    var id: String { rawValue }
+
+    func name(in language: AppLanguage) -> String {
+        switch self {
+        case .calm: language.text("Calm", "安靜")
+        case .balanced: language.text("Easygoing", "普通")
+        case .active: language.text("Active", "好動")
+        }
+    }
+
+    /// Seconds to rest between moves.
+    func pause(outdoors: Bool) -> ClosedRange<Double> {
+        switch self {
+        case .calm: outdoors ? 4...8 : 6...12
+        case .balanced: outdoors ? 1.2...3 : 1.5...3.5
+        case .active: outdoors ? 0.1...0.5 : 0.3...1
+        }
+    }
+
+    /// Seconds per move; active dogs run, faster still outside.
+    func moveDuration(outdoors: Bool) -> Double {
+        switch self {
+        case .calm: 3
+        case .balanced: 2.2
+        case .active: outdoors ? 0.8 : 1.1
+        }
+    }
+
+    /// Furthest one move goes, as a fraction of the scene width.
+    var reach: Double {
+        switch self {
+        case .calm: 0.15
+        case .balanced: 0.4
+        case .active: 0.7
+        }
+    }
+}
+
+extension DogProfile {
+    var breed: Breed { Breed.named(breedID) }
+    /// The look read from a photo, when it's chosen over the breed coat.
+    var look: DogLook? { usesPhoto ? photoLook : nil }
+}
+
+/// All of the user's dogs, which one is the main dog, and who goes on walks.
 struct DogRoster: Codable, Equatable {
     var dogs: [DogProfile]
     var activeID: UUID
+    /// The dogs last chosen to go on walks; nil until the user picks.
+    var walkingIDs: [UUID]?
 
     init(dogs: [DogProfile] = [DogProfile()]) {
         self.dogs = dogs.isEmpty ? [DogProfile()] : dogs
@@ -74,6 +127,12 @@ struct DogRoster: Codable, Equatable {
     }
 
     var active: DogProfile { dogs.first { $0.id == activeID } ?? dogs[0] }
+
+    /// Who goes on the next walk: the last choice, or every dog.
+    var walking: [DogProfile] {
+        let chosen = dogs.filter { walkingIDs?.contains($0.id) ?? true }
+        return chosen.isEmpty ? [active] : chosen
+    }
 
     /// Reads the roster file, or a file from before there could be several dogs.
     static func decode(_ data: Data) throws -> DogRoster {

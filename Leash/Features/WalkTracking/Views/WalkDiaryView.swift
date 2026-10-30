@@ -7,6 +7,7 @@ struct WalkDiaryView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.appLanguage) private var language
     @State private var pendingDelete: Walk?
+    @State private var editing: Walk?
     private var walks: [Walk] { model.archive.completed }
 
     var body: some View {
@@ -19,16 +20,20 @@ struct WalkDiaryView: View {
             }
             ForEach(walks) { walk in
                 NavigationLink {
-                    WalkSummaryView(walk: walk).navigationTitle(language.text("Walk", "散步紀錄"))
+                    DiaryEntryView(id: walk.id, model: model)
                 } label: {
                     row(walk)
                 }
                 .swipeActions {
                     Button(language.text("Delete", "刪除"), role: .destructive) { pendingDelete = walk }
+                    Button(language.text("Edit", "編輯")) { editing = walk }.tint(Theme.muted)
                 }
             }
         }
         .scrollContentBackground(.hidden).background(Theme.background(colorScheme))
+        .sheet(item: $editing) { walk in
+            NavigationStack { WalkEditView(walk: walk, model: model) }
+        }
         .confirmationDialog(language.text("Delete this entry?", "刪除這筆？"), isPresented: Binding(
             get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }), titleVisibility: .visible, presenting: pendingDelete) { walk in
             Button(language.text("Delete", "刪除"), role: .destructive) { model.delete(walk) }
@@ -73,6 +78,9 @@ struct WalkDiaryView: View {
                     if walk.count(of: .pee) > 0 { iconCount(.drop, walk.count(of: .pee)) }
                 }
                 .font(.caption).foregroundStyle(.secondary)
+                if let note = walk.note {
+                    Text(note).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
             }
             Spacer()
             Text(walk.isIndoor ? "🏠" : "🐾")
@@ -81,5 +89,26 @@ struct WalkDiaryView: View {
 
     private func iconCount(_ glyph: PixelIcon.Glyph, _ count: Int) -> some View {
         HStack(spacing: 2) { PixelIcon(glyph: glyph).frame(width: 12, height: 12); Text("\(count)") }
+    }
+}
+
+/// One diary entry, always showing the saved version, with Edit.
+private struct DiaryEntryView: View {
+    let id: UUID
+    let model: WalkViewModel
+    @State private var editing = false
+    @Environment(\.appLanguage) private var language
+
+    var body: some View {
+        if let walk = model.archive.completed.first(where: { $0.id == id }) {
+            WalkSummaryView(walk: walk)
+                .navigationTitle(language.text("Walk", "散步紀錄"))
+                .toolbar { Button(language.text("Edit", "編輯")) { editing = true } }
+                .sheet(isPresented: $editing) {
+                    NavigationStack { WalkEditView(walk: walk, model: model) }
+                }
+        } else {
+            ContentUnavailableView(language.text("Entry deleted", "這筆已刪除"), systemImage: "trash")
+        }
     }
 }

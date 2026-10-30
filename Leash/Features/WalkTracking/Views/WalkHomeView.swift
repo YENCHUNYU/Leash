@@ -38,8 +38,13 @@ struct WalkHomeView: View {
             .toasts(toaster)
             .presentationDetents(detents(for: selected)).presentationDragIndicator(.visible)
         }
-        .confirmationDialog(t("Finish and save this walk?", "回家並儲存這次散步？"), isPresented: $confirmingFinish, titleVisibility: .visible) {
-            Button(t("Finish walk", "回家，結束散步")) { finishWalk() }
+        .background {
+            // The app tint is the light yellow accent, which is hard to read on the dialog; use the text color instead.
+            Color.clear
+                .confirmationDialog(t("Head home and end this walk?", "回家並結束這次散步？"), isPresented: $confirmingFinish, titleVisibility: .visible) {
+                    Button(t("Head home, end walk", "回家，結束散步")) { finishWalk() }
+                }
+                .tint(.primary)
         }
         .alert("Leash", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } }), presenting: model.error) { _ in
             Button(t("OK", "好")) { model.error = nil }
@@ -70,10 +75,9 @@ struct WalkHomeView: View {
         case .search: SpotsView(model: model, startSearching: true) { sheet = nil }
         case .encounter: EncounterView { sheet = nil }
         case .finished(let walk):
-            WalkSummaryView(walk: walk) {
-                Button(t("Save to diary", "收進日記")) { sheet = nil }
-                    .buttonStyle(.borderedProminent).foregroundStyle(Theme.ink)
-            }
+            FinishedWalkView(id: walk.id, model: model) { sheet = nil }
+        case .chooseDogs:
+            WalkDogPicker { ids in begin(with: ids) }
         case .route:
             if let walk = model.activeWalk { WalkSummaryView(walk: walk) }
             else { ContentUnavailableView(t("No route yet", "還沒有散步路線"), systemImage: "map", description: Text(t("Start a walk to record your route.", "出門散步後，就能在這裡查看路線。"))) }
@@ -84,6 +88,7 @@ struct WalkHomeView: View {
     /// it can't grow past full screen, and scrolls when the content is taller.
     private func detents(for sheet: WalkSheet) -> Set<PresentationDetent> {
         if case .profile = sheet { return [.height(profileHeight + 60)] }
+        if case .chooseDogs = sheet { return [.medium] }
         return [.large]
     }
 
@@ -95,8 +100,12 @@ struct WalkHomeView: View {
             let walk = model.activeWalk
             ZStack(alignment: .topLeading) {
                 PixelScene(outdoors: walk != nil)
-                WanderingDog(outdoors: walk != nil, name: game.profile.displayName(in: language),
-                             breed: game.dogBreed, scarf: game.profile.scarf, look: game.dogLook, accessory: game.profile.accessory)
+                let shown = walk.map(game.dogs(on:)) ?? game.roster.dogs
+                ForEach(Array(shown.prefix(6).enumerated()), id: \.element.id) { index, dog in
+                    WanderingDog(outdoors: walk != nil, name: dog.displayName(in: language), breed: dog.breed, scarf: dog.scarf,
+                                 look: dog.look, accessory: dog.accessory, personality: dog.personality,
+                                 start: WanderingDog.start(index, of: min(shown.count, 6)))
+                }
                 if walk != nil { visitor(in: size) }
                 if walk == nil { door(in: size) }
                 VStack(spacing: 10) {
@@ -254,10 +263,16 @@ struct WalkHomeView: View {
         }
     }
 
-    /// Starts tracking, linked to the saved park if there is one.
+    /// With several dogs, asks who's coming first; otherwise starts right away.
     private func startWalk() {
+        if game.roster.dogs.count > 1 { sheet = .chooseDogs } else { begin(with: [game.profile.id]) }
+    }
+
+    /// Starts tracking with these dogs, linked to the saved park if there is one.
+    private func begin(with dogs: [UUID]) {
+        if game.roster.dogs.count > 1 { game.setWalkingDogs(dogs) }
         let planned = plannedID.isEmpty ? nil : plannedID
-        model.start(at: spots.spot(id: planned) == nil ? nil : planned)
+        model.start(at: spots.spot(id: planned) == nil ? nil : planned, dogs: dogs)
         if model.activeWalk != nil { plannedID = "" }
     }
 
@@ -340,19 +355,36 @@ struct WalkHomeView: View {
 
     private func circleControl(_ glyph: PixelIcon.Glyph, label: String, highlighted: Bool = false, badge: Int? = nil,
                                action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            PixelIcon(glyph: glyph).frame(width: 30, height: 30).frame(width: 58, height: 58)
-                .background(highlighted ? Theme.accent : Theme.overlay, in: Circle())
-                .overlay(alignment: .topTrailing) { if let badge { countBadge(badge) } }
-        }
+        Button(action: action) { circleLabel(glyph, highlighted: highlighted, badge: badge) }
         .accessibilityLabel(label)
         .accessibilityValue(badge.map(String.init) ?? "")
     }
 
-    private func eventControl(_ kind: WalkEvent.Kind, walk: Walk) -> some View {
-        circleControl(kind == .pee ? .drop : .poop, label: kind == .pee ? t("Log a pee", "記錄尿尿") : t("Log a poop", "記錄便便"),
-                      badge: walk.count(of: kind)) { model.log(kind) }
+    @ViewBuilder private func eventControl(_ kind: WalkEvent.Kind, walk: Walk) -> some View {
+        let label = kind == .pee ? t("Log a pee", "記錄尿尿") : t("Log a poop", "記錄便便")
+        let glyph: PixelIcon.Glyph = kind == .pee ? .drop : .poop
+        let dogs = game.dogs(on: walk)
+        if dogs.count > 1 {
+            Menu {
+                ForEach(dogs) { dog in
+                    Button("\(dog.displayName(in: language)) (\(walk.count(of: kind, dog: dog.id)))") { model.log(kind, dog: dog.id) }
+                }
+            } label: {
+                circleLabel(glyph, highlighted: false, badge: walk.count(of: kind))
+            }
+            .accessibilityLabel(label)
+            .accessibilityValue("\(walk.count(of: kind))")
             .sensoryFeedback(.increase, trigger: walk.count(of: kind))
+        } else {
+            circleControl(glyph, label: label, badge: walk.count(of: kind)) { model.log(kind) }
+                .sensoryFeedback(.increase, trigger: walk.count(of: kind))
+        }
+    }
+
+    private func circleLabel(_ glyph: PixelIcon.Glyph, highlighted: Bool, badge: Int?) -> some View {
+        PixelIcon(glyph: glyph).frame(width: 30, height: 30).frame(width: 58, height: 58)
+            .background(highlighted ? Theme.accent : Theme.overlay, in: Circle())
+            .overlay(alignment: .topTrailing) { if let badge { countBadge(badge) } }
     }
 
     private func countBadge(_ count: Int) -> some View {
@@ -390,7 +422,7 @@ struct WalkHomeView: View {
 }
 
 private enum WalkSheet: Identifiable {
-    case diary, quests, dex, album, spots, search, profile, settings, route, encounter
+    case diary, quests, dex, album, spots, search, profile, settings, route, encounter, chooseDogs
     case finished(Walk)
 
     var id: String {
@@ -412,6 +444,57 @@ private enum WalkSheet: Identifiable {
         case .route: language.text("Current walk", "這次的散步")
         case .encounter: language.text("You met a dog", "遇到狗狗")
         case .finished: language.text("Walk complete", "散步完成")
+        case .chooseDogs: language.text("Who's coming?", "帶誰出門？")
+        }
+    }
+}
+
+/// Right after a walk: keep it in the diary, edit it first, or leave it out.
+private struct FinishedWalkView: View {
+    let id: UUID
+    let model: WalkViewModel
+    let onDone: () -> Void
+    @State private var editing = false
+    @State private var confirmingDiscard = false
+    @Environment(Toaster.self) private var toaster
+    @Environment(\.appLanguage) private var language
+
+    var body: some View {
+        if let walk = model.archive.completed.first(where: { $0.id == id }) {
+            WalkSummaryView(walk: walk) {
+                VStack(spacing: 8) {
+                    Button { onDone() } label: {
+                        Text(language.text("Save to diary", "收進日記")).fontWeight(.bold).frame(maxWidth: .infinity).padding(.vertical, 6)
+                    }
+                    .buttonStyle(.borderedProminent).foregroundStyle(Theme.ink)
+                    HStack(spacing: 8) {
+                        Button { editing = true } label: {
+                            Label(language.text("Edit", "編輯"), systemImage: "pencil").frame(maxWidth: .infinity)
+                        }
+                        Button(role: .destructive) { confirmingDiscard = true } label: {
+                            Label(language.text("Don't add", "不加入日記"), systemImage: "xmark").frame(maxWidth: .infinity)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .sheet(isPresented: $editing) {
+                NavigationStack { WalkEditView(walk: walk, model: model) }
+            }
+            .confirmationDialog(language.text("Leave this walk out of the diary?", "不把這次散步加入日記？"),
+                                isPresented: $confirmingDiscard, titleVisibility: .visible) {
+                Button(language.text("Don't add", "不加入日記"), role: .destructive) {
+                    if model.delete(walk) {
+                        toaster.show(language.text("Not added to the diary", "沒有加入日記"))
+                        onDone()
+                    }
+                }
+            } message: {
+                Text(language.text("It won't count toward quests or streaks. Photos stay in your album.",
+                                   "這次散步不會計入任務和連續天數，照片會留在相簿。"))
+            }
+        } else {
+            Color.clear.onAppear(perform: onDone)
         }
     }
 }

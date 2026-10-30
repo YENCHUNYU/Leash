@@ -49,8 +49,8 @@ final class WalkViewModel {
         }
     }
 
-    func start(at spotID: String? = nil) {
-        guard archive.active == nil, saveActive(Walk(spotID: spotID)) else { return }
+    func start(at spotID: String? = nil, dogs: [UUID] = []) {
+        guard archive.active == nil, saveActive(Walk(spotID: spotID, dogIDs: dogs)) else { return }
         previousLocation = nil
         updateAuthorization()
     }
@@ -96,9 +96,19 @@ final class WalkViewModel {
         saveCompleted(archive.completed.filter { $0.id != walk.id })
     }
 
-    func log(_ kind: WalkEvent.Kind) {
+    /// Saves changes to a diary entry.
+    @discardableResult
+    func update(_ walk: Walk) -> Bool {
+        guard let index = archive.completed.firstIndex(where: { $0.id == walk.id }) else { return false }
+        var completed = archive.completed
+        completed[index] = walk
+        return saveCompleted(completed)
+    }
+
+    /// Logs a pee or poop, for one dog when several are out.
+    func log(_ kind: WalkEvent.Kind, dog: UUID? = nil) {
         guard var walk = archive.active else { return }
-        walk.events.append(WalkEvent(kind: kind))
+        walk.events.append(WalkEvent(kind: kind, dogID: dog))
         saveActive(walk)
     }
 

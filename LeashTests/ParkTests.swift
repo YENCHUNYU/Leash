@@ -67,6 +67,36 @@ struct ParkDataTests {
         #expect(catalog.spot(id: "osmw1557260053")?.address == "嘉義市東區")
     }
 
+    @Test func bundledParksCarrySourceLinksAndEditDates() async {
+        let catalog = SpotCatalog(directory: nil)
+        await catalog.loadBundled()
+        #expect(catalog.fetchedOn?.count == 10)
+        let park = catalog.spot(id: "osmw1557260053")
+        #expect(park?.sourceURL?.absoluteString == "https://www.openstreetmap.org/way/1557260053")
+        #expect(park?.lastUpdated?.count == 10)
+        #expect(catalog.bundled.filter { $0.lastUpdated != nil }.count > 8_000)
+    }
+
+    @Test func sourceLinksOnlyForOpenStreetMapIDs() {
+        func spot(_ id: String, source: Spot.Source = .openStreetMap) -> Spot {
+            Spot(id: id, name: "X", country: .taiwan, region: "", subregion: "", address: "", tags: [],
+                 latitude: nil, longitude: nil, source: source)
+        }
+        #expect(spot("osmn42").sourceURL?.absoluteString == "https://www.openstreetmap.org/node/42")
+        #expect(spot("osmr7").sourceURL?.absoluteString == "https://www.openstreetmap.org/relation/7")
+        #expect(spot("osmx7").sourceURL == nil)
+        #expect(spot("osmw").sourceURL == nil)
+        #expect(spot("c123", source: .userAdded).sourceURL == nil)
+    }
+
+    @Test func customSpotsRecordWhenTheyWereAdded() throws {
+        let new = CustomSpot(name: "Backyard", area: "Irvine", tags: [], country: .unitedStates, region: "Irvine")
+        #expect(new.spot.lastUpdated?.count == 10)
+        // Spots saved before the date was recorded still load, with the date unknown.
+        let old = try JSONDecoder().decode(CustomSpot.self, from: Data(#"{"id":"c1","name":"Old","area":"","tags":[],"country":"taiwan","region":"臺北市"}"#.utf8))
+        #expect(old.spot.lastUpdated == nil)
+    }
+
     @Test func customSpotsHaveNoInventedCoordinates() {
         let spot = CustomSpot(name: "Backyard", area: "Irvine", tags: [], country: .unitedStates, region: "Irvine").spot
         #expect(spot.coordinate == nil)

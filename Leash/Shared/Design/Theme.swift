@@ -37,3 +37,13 @@ extension Color {
         self.init(.sRGB, red: Double((hex >> 16) & 255) / 255, green: Double((hex >> 8) & 255) / 255, blue: Double(hex & 255) / 255, opacity: 1)
     }
 }
+
+extension Color {
+    /// The color as 0xRRGGBB, as stored for coats and collars.
+    var leashHex: UInt32 {
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        UIColor(self).getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        func channel(_ value: CGFloat) -> UInt32 { UInt32((min(max(value, 0), 1) * 255).rounded()) }
+        return channel(red) << 16 | channel(green) << 8 | channel(blue)
+    }
+}

@@ -21,6 +21,10 @@ struct Walk: Codable, Identifiable, Equatable {
     var photoIDs: [UUID] = []
     /// Set for indoor-play quest entries, which have no route.
     var indoorActivity: String?
+    /// The dogs that came along. Empty on walks from before there could be several dogs.
+    var dogIDs: [UUID] = []
+    /// The user's own words about the walk.
+    var note: String?
 
     var isIndoor: Bool { indoorActivity != nil }
 
@@ -35,6 +39,24 @@ struct Walk: Codable, Identifiable, Equatable {
 
     func count(of kind: WalkEvent.Kind) -> Int {
         events.lazy.filter { $0.kind == kind }.count
+    }
+
+    func count(of kind: WalkEvent.Kind, dog: UUID) -> Int {
+        events.lazy.filter { $0.kind == kind && $0.dogID == dog }.count
+    }
+
+    /// Sets how many of `kind` were logged, for one dog or (with nil) in total. New events are timed at the end of the walk.
+    mutating func setCount(of kind: WalkEvent.Kind, dog: UUID? = nil, to target: Int) {
+        let matches = { (event: WalkEvent) in event.kind == kind && (dog == nil || event.dogID == dog) }
+        var current = events.filter(matches).count
+        while current > target, let index = events.lastIndex(where: matches) {
+            events.remove(at: index)
+            current -= 1
+        }
+        while current < target {
+            events.append(WalkEvent(kind: kind, timestamp: endedAt ?? startedAt, dogID: dog))
+            current += 1
+        }
     }
 
     /// Route split at the same gaps RouteFilter excludes from distance.
@@ -55,7 +77,7 @@ struct Walk: Codable, Identifiable, Equatable {
 
 extension Walk {
     private enum CodingKeys: String, CodingKey {
-        case id, startedAt, endedAt, distanceMeters, route, events, spotID, photoIDs, indoorActivity
+        case id, startedAt, endedAt, distanceMeters, route, events, spotID, photoIDs, indoorActivity, dogIDs, note
     }
 
     /// Tolerates fields added after a walk was saved.
@@ -70,6 +92,8 @@ extension Walk {
         spotID = try container.decodeIfPresent(String.self, forKey: .spotID)
         photoIDs = try container.decodeIfPresent([UUID].self, forKey: .photoIDs) ?? []
         indoorActivity = try container.decodeIfPresent(String.self, forKey: .indoorActivity)
+        dogIDs = try container.decodeIfPresent([UUID].self, forKey: .dogIDs) ?? []
+        note = try container.decodeIfPresent(String.self, forKey: .note)
     }
 }
 
@@ -78,6 +102,8 @@ struct WalkEvent: Codable, Identifiable, Equatable {
     var id = UUID()
     let kind: Kind
     var timestamp = Date()
+    /// Which dog, when several were on the walk.
+    var dogID: UUID?
 }
 
 struct WalkArchive: Codable, Equatable {

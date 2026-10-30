@@ -1,3 +1,4 @@
+import SwiftUI
 import Foundation
 import UIKit
 import Testing
@@ -407,5 +408,30 @@ struct DogLookTests {
         let profile = try JSONDecoder().decode(DogProfile.self, from: Data(#"{"name":"Mochi","breedID":"corgi","scarf":1}"#.utf8))
         #expect(profile.photoLook == nil)
         #expect(profile.usesPhoto == false)
+    }
+}
+
+struct PersonalityTests {
+    @Test func dogsSavedBeforePersonalityAreEasygoing() throws {
+        let dog = try JSONDecoder().decode(DogProfile.self, from: Data(#"{"name":"Mochi"}"#.utf8))
+        #expect(dog.personality == .balanced)
+        var active = dog
+        active.personality = .active
+        let again = try JSONDecoder().decode(DogProfile.self, from: JSONEncoder().encode(active))
+        #expect(again.personality == .active)
+    }
+
+    @Test func activeDogsMoveMoreThanCalmOnes() {
+        #expect(Personality.active.pause(outdoors: false).upperBound < Personality.calm.pause(outdoors: false).lowerBound)
+        #expect(Personality.active.moveDuration(outdoors: true) < Personality.active.moveDuration(outdoors: false))
+        #expect(Personality.active.reach > Personality.calm.reach)
+    }
+}
+
+struct ColorHexTests {
+    @Test func colorsRoundTripThroughHex() {
+        for hex: UInt32 in [0x000000, 0xFFFFFF, 0xE2574C, 0x3FB8B0, 0x8B5A2B] {
+            #expect(Color(leashHex: hex).leashHex == hex)
+        }
     }
 }

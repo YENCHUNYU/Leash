@@ -8,6 +8,8 @@ final class SpotCatalog {
     private(set) var bundled: [Spot] = []
     private(set) var custom: [CustomSpot] = []
     private(set) var isLoaded = false
+    /// "YYYY-MM-DD" of the OSM data the edit dates were read from.
+    private(set) var fetchedOn: String?
     private var index: [String: Spot] = [:]
     private let customFile: JSONFile<[CustomSpot]>?
 
@@ -23,7 +25,13 @@ final class SpotCatalog {
     func loadBundled(from bundle: Bundle = .main) async {
         guard !isLoaded else { return }
         let urls = ["spots_tw", "spots_us"].compactMap { bundle.url(forResource: $0, withExtension: "json") }
-        bundled = await Task.detached(priority: .utility) { urls.flatMap(Self.decode) }.value
+        let datesURL = bundle.url(forResource: "spots_edited", withExtension: "json")
+        let (spots, dates) = await Task.detached(priority: .utility) {
+            let dates = datesURL.flatMap(Self.decodeDates)
+            return (urls.flatMap { Self.decode($0, edited: dates?.edited ?? [:]) }, dates)
+        }.value
+        bundled = spots
+        fetchedOn = dates.map { String($0.fetched.prefix(10)) }
         isLoaded = true
         reindex()
     }
@@ -41,8 +49,20 @@ final class SpotCatalog {
         index = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
+    nonisolated struct EditDates: Decodable, Sendable {
+        /// When the OSM data was read, as an ISO 8601 timestamp.
+        let fetched: String
+        /// Raw OSM id (e.g. "w123") to "YYYY-MM-DD".
+        let edited: [String: String]
+    }
+
+    /// Made by scripts/fetch_spot_dates.py.
+    nonisolated static func decodeDates(_ url: URL) -> EditDates? {
+        (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(EditDates.self, from: $0) }
+    }
+
     /// Rows are [id, name, county, area, tagBits, lat, lon, openingHours] plus a US county column.
-    nonisolated static func decode(_ url: URL) -> [Spot] {
+    nonisolated static func decode(_ url: URL, edited: [String: String] = [:]) -> [Spot] {
         guard let data = try? Data(contentsOf: url),
               let rows = try? JSONSerialization.jsonObject(with: data) as? [[Any]] else { return [] }
         return rows.compactMap { row in
@@ -56,10 +76,11 @@ final class SpotCatalog {
                 let state = locality.split(separator: " ").last.map(String.init) ?? ""
                 return Spot(id: "osm" + id, name: name, country: .unitedStates, region: state,
                             subregion: row[8] as? String ?? "", address: [area, locality].filter { !$0.isEmpty }.joined(separator: ", "),
-                            tags: tags, latitude: latitude, longitude: longitude, openingHours: hours)
+                            tags: tags, latitude: latitude, longitude: longitude, openingHours: hours, lastUpdated: edited[id])
             }
             return Spot(id: "osm" + id, name: name, country: .taiwan, region: locality, subregion: area,
-                        address: locality + area, tags: tags, latitude: latitude, longitude: longitude, openingHours: hours)
+                        address: locality + area, tags: tags, latitude: latitude, longitude: longitude, openingHours: hours,
+                        lastUpdated: edited[id])
         }
     }
 }

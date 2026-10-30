@@ -56,6 +56,9 @@ nonisolated struct Spot: Identifiable, Hashable, Sendable {
 
     /// Facilities shown on park cards, in display order.
     static let facilities: [Tag] = [.water, .fence, .zone, .bag, .shade]
+    /// Facilities shown up top in park details, next to leash rules and hours.
+    static let keyFacilities: [Tag] = [.water, .zone]
+    static let otherFacilities: [Tag] = facilities.filter { !keyFacilities.contains($0) }
 
     let id: String
     let name: String
@@ -72,8 +75,18 @@ nonisolated struct Spot: Identifiable, Hashable, Sendable {
     /// OSM `opening_hours` text as mapped, e.g. "Mo-Su 06:00-22:00"; nil when unknown.
     var openingHours: String?
     var source = Source.openStreetMap
+    /// "YYYY-MM-DD": when the OSM feature was last edited, or when the user added the spot; nil when unknown.
+    var lastUpdated: String?
 
     var isCustom: Bool { source == .userAdded }
+    /// The park's page on openstreetmap.org, where it can be checked or corrected.
+    var sourceURL: URL? {
+        guard source == .openStreetMap, id.hasPrefix("osm"), id.count > 4 else { return nil }
+        let kinds: [Character: String] = ["n": "node", "w": "way", "r": "relation"]
+        let ref = id.dropFirst(3)
+        guard let kind = kinds[ref.first!], ref.dropFirst().allSatisfy(\.isNumber) else { return nil }
+        return URL(string: "https://www.openstreetmap.org/\(kind)/\(ref.dropFirst())")
+    }
     var coordinate: CLLocationCoordinate2D? {
         guard let latitude, let longitude else { return nil }
         return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
@@ -111,10 +124,13 @@ struct CustomSpot: Codable, Identifiable, Equatable {
     var tags: Set<Spot.Tag>
     var country: Spot.Country
     var region: String
+    /// Missing on spots saved before this was recorded.
+    var addedAt: Date? = Date()
 
     var spot: Spot {
         Spot(id: id, name: name, country: country, region: region, subregion: "", address: area,
-             tags: tags, latitude: nil, longitude: nil, source: .userAdded)
+             tags: tags, latitude: nil, longitude: nil, source: .userAdded,
+             lastUpdated: addedAt.map { $0.formatted(Date.ISO8601FormatStyle(timeZone: .current).year().month().day()) })
     }
 }
 

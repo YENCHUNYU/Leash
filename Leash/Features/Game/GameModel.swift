@@ -45,8 +45,19 @@ final class GameModel {
         try? FileManager.default.moveItem(at: old, to: new)
     }
 
-    /// The dog that's on screen and on walks.
+    /// The main dog, shown in the header and edited in My Dog.
     var profile: DogProfile { roster.active }
+
+    /// The dogs on a walk, in roster order. Walks from before there could be several dogs show the main dog.
+    func dogs(on walk: Walk) -> [DogProfile] {
+        guard !walk.dogIDs.isEmpty else { return [profile] }
+        return roster.dogs.filter { walk.dogIDs.contains($0.id) }
+    }
+
+    @discardableResult
+    func setWalkingDogs(_ ids: [UUID]) -> Bool {
+        saveRoster { $0.walkingIDs = ids }
+    }
 
     var progress: GameProgress {
         GameProgress(walks: walks.archive.completed, photos: photos.photos, customSpotCount: spots.custom.count,
@@ -146,6 +157,7 @@ final class GameModel {
         guard roster.dogs.count > 1 else { return false }
         let saved = saveRoster { roster in
             roster.dogs.removeAll { $0.id == id }
+            roster.walkingIDs?.removeAll { $0 == id }
             if roster.activeID == id { roster.activeID = roster.dogs[0].id }
         }
         if saved, let url = dogPhotoURL(for: id) { try? FileManager.default.removeItem(at: url) }

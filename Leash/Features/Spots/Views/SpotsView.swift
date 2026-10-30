@@ -41,9 +41,6 @@ struct SpotsView: View {
         }
         .searchable(text: $query.text, isPresented: $searching, placement: .navigationBarDrawer(displayMode: .always), prompt: language.text("Park, city or area", "地點、城市或區域"))
         .background(Theme.background(colorScheme))
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) { regionMenu }
-        }
         .onAppear {
             model.locateUser()
             if startSearching { searching = true }
@@ -133,33 +130,6 @@ struct SpotsView: View {
         .padding(.horizontal, 16)
     }
 
-    /// Existing region selection, kept from the original Spots screen.
-    private var regionMenu: some View {
-        let counts = Dictionary(spots.all.map { ($0.region, 1) }, uniquingKeysWith: +)
-        let ordered = (language == .english ? Regions.unitedStates.keys.sorted() + Regions.taiwan
-                                            : Regions.taiwan + Regions.unitedStates.keys.sorted()).filter { counts[$0] != nil }
-        let subregions = query.region.map { selected in
-            Dictionary(spots.all.filter { $0.region == selected && !$0.subregion.isEmpty }.map { ($0.subregion, 1) }, uniquingKeysWith: +)
-        } ?? [:]
-        return Menu {
-            Button(language.text("Near me", "我附近")) { query.region = nil; query.subregion = nil }
-            if subregions.count > 1 {
-                Menu(language.text("Area", "鄉鎮市區")) {
-                    Button(language.text("All areas", "全部鄉鎮市區")) { query.subregion = nil }
-                    ForEach(subregions.keys.sorted(), id: \.self) { name in
-                        Button("\(name) (\(subregions[name] ?? 0))") { query.subregion = name }
-                    }
-                }
-            }
-            Divider()
-            ForEach(ordered, id: \.self) { name in
-                Button("\(Regions.displayName(name)) (\(counts[name] ?? 0))") { query.region = name; query.subregion = nil }
-            }
-        } label: {
-            Label(query.region.map(Regions.displayName) ?? language.text("Region", "地區"), systemImage: "mappin.and.ellipse")
-        }
-    }
-
     // MARK: List
 
     private func list(_ parks: [Spot], user: CLLocation?, originLabel: String) -> some View {
@@ -184,8 +154,13 @@ struct SpotsView: View {
             Section {
                 Button(language.text("+ Add a spot", "＋ 新增地點")) { addingSpot = true }
             } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                if let fetched = spots.fetchedOn {
+                    Text(language.text("Data fetched \(fetched). ", "資料擷取於 \(fetched)。"))
+                }
                 Text(language.text("Dog parks from a bundled OpenStreetMap snapshot (© OpenStreetMap contributors). It may be incomplete or out of date; most facilities aren't mapped, so they show as \"Not verified\". Every mapped dog park counts as an off-leash area, so that filter won't narrow results much.",
                                    "地點來自內建的 OpenStreetMap 快照（© OpenStreetMap contributors），可能不完整或過時；多數設施沒有標註，因此顯示為「未確認」。所有狗公園都標示為可放繩區，所以這個篩選條件影響不大。"))
+                }
             }
         }
         .scrollContentBackground(.hidden)

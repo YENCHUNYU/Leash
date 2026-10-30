@@ -1,7 +1,7 @@
 import SwiftUI
 import PhotosUI
 
-/// The user's dogs: pick which one is out, name it, adjust its look and dress it up. A photo of a real dog
+/// The user's dogs: pick one to edit, name it, adjust its look and dress it up. A photo of a real dog
 /// becomes a matching pixel dog, as a new dog or for the current one.
 struct ProfileView: View {
     /// Reports how tall the content is, so the sheet can fit it instead of filling the screen.
@@ -43,12 +43,22 @@ struct ProfileView: View {
                     if converting {
                         Text(language.text("Looking at your dog…", "正在看你的狗狗…")).font(.caption).foregroundStyle(.secondary)
                     } else {
-                        // Dogs without a photo start from their breed's colors.
-                        Button(language.text("Adjust look", "調整樣子")) { editing = editCurrent(game.dogLook ?? DogLook(breed: game.dogBreed)) }
-                            .font(.caption)
+                        HStack(spacing: 8) {
+                            // Dogs made without a photo can get one any time; the photo makes a new pixel look to check.
+                            Menu { photoButtons(newDog: false) } label: {
+                                Label(dogPhoto == nil ? language.text("Add photo", "加入照片") : language.text("New photo", "換照片"),
+                                      systemImage: "camera")
+                            }
+                            // Dogs without a photo start from their breed's colors.
+                            Button { editing = editCurrent(game.dogLook ?? DogLook(breed: game.dogBreed)) } label: {
+                                Label(language.text("Adjust look", "調整樣子"), systemImage: "paintpalette")
+                            }
+                        }
+                        .font(.caption).buttonStyle(.bordered)
                     }
                 }
                 .frame(maxWidth: .infinity).card()
+                personalityPicker
                 dressUp
             }
             .padding(16)
@@ -141,7 +151,7 @@ struct ProfileView: View {
                     }
                     .accessibilityLabel(dog.displayName(in: language))
                     .accessibilityAddTraits(active ? .isSelected : [])
-                    .accessibilityHint(language.text("Makes this the dog on screen and on walks", "讓這隻狗狗出現在畫面和散步中"))
+                    .accessibilityHint(language.text("Shows this dog here to edit", "在這裡編輯這隻狗狗"))
                 }
                 Menu { addDogItems } label: {
                     VStack(spacing: 4) {
@@ -173,6 +183,30 @@ struct ProfileView: View {
         }
         Button { photoForNewDog = newDog; showingLibrary = true } label: {
             Label(language.text("Choose Photo", "從相簿選擇"), systemImage: "photo.on.rectangle")
+        }
+    }
+
+    // MARK: Personality
+
+    /// How much the dog moves around at home and on walks.
+    private var personalityPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(language.text("Personality", "個性")).font(.system(.headline, design: .monospaced))
+            Picker(language.text("Personality", "個性"), selection: Binding(
+                get: { game.profile.personality }, set: { value in update { $0.personality = value } })) {
+                ForEach(Personality.allCases) { Text($0.name(in: language)).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            Text(personalityHint).font(.caption).foregroundStyle(.secondary)
+        }
+        .card()
+    }
+
+    private var personalityHint: String {
+        switch game.profile.personality {
+        case .calm: language.text("Mostly stays put and naps.", "大多待在原地，不太走動。")
+        case .balanced: language.text("Strolls around now and then.", "偶爾走來走去。")
+        case .active: language.text("Never stops pacing, and runs outside.", "一直晃來晃去，出門會跑來跑去。")
         }
     }
 

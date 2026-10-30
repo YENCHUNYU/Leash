@@ -115,6 +115,12 @@ struct DogLookEditor: View {
                         .accessibilityLabel(String(format: "#%06X", color))
                         .accessibilityAddTraits(selected ? .isSelected : [])
                     }
+                    // Any color at all, from the system color picker.
+                    ColorPicker(language.text("More colors", "更多顏色"), selection: Binding(
+                        get: { Color(leashHex: value.wrappedValue) }, set: { value.wrappedValue = $0.leashHex }), supportsOpacity: false)
+                        .labelsHidden()
+                        .frame(width: 44, height: 44)
+                        .accessibilityLabel(language.text("\(title): more colors", "\(title)：更多顏色"))
                 }
             }
         }

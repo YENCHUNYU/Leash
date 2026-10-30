@@ -6,6 +6,7 @@ struct WalkSummaryView<Footer: View>: View {
     @ViewBuilder var footer: Footer
     @Environment(PhotoLibrary.self) private var photos
     @Environment(SpotCatalog.self) private var spots
+    @Environment(GameModel.self) private var game
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.appLanguage) private var language
 
@@ -31,6 +32,10 @@ struct WalkSummaryView<Footer: View>: View {
                     metric(language.text("💧 Pee", "💧 尿尿"), value: "\(walk.count(of: .pee))")
                     metric(language.text("📷 Photo", "📷 拍照"), value: "\(walk.photoIDs.count)")
                 }
+                if !walk.isIndoor { dogs }
+                if let note = walk.note {
+                    Text(note).frame(maxWidth: .infinity, alignment: .leading).card()
+                }
                 let walkPhotos = walk.photoIDs.compactMap(photos.photo(id:))
                 if !walkPhotos.isEmpty {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
@@ -44,6 +49,26 @@ struct WalkSummaryView<Footer: View>: View {
                 }
             }.padding(16)
         }.background(Theme.background(colorScheme))
+    }
+
+    /// Who came along; with several dogs, each one's pee and poop.
+    private var dogs: some View {
+        let dogs = game.dogs(on: walk)
+        return VStack(alignment: .leading, spacing: 8) {
+            ForEach(dogs) { dog in
+                HStack(spacing: 8) {
+                    PixelDog(breed: dog.breed, scarf: dog.scarf, look: dog.look, accessory: dog.accessory).frame(width: 32, height: 32)
+                    Text(dog.displayName(in: language)).font(.system(.subheadline, design: .monospaced))
+                    Spacer()
+                    if dogs.count > 1 {
+                        Text("💩 \(walk.count(of: .poop, dog: dog.id))  💧 \(walk.count(of: .pee, dog: dog.id))")
+                            .font(.system(.subheadline, design: .monospaced)).foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
+        .card()
     }
 
     private func metric(_ title: String, value: String) -> some View {

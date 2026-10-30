@@ -59,6 +59,7 @@ struct ParkRow: View {
                 if !spot.address.isEmpty {
                     Text(spot.address).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
+                Text(updatedText).font(.caption2).foregroundStyle(Theme.muted)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 4) {
                         if isPlanned {
@@ -79,5 +80,11 @@ struct ParkRow: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityHint(language.text("Shows park details", "查看地點詳情"))
+    }
+
+    private var updatedText: String {
+        let source = spot.isCustom ? language.text("Added by you", "你新增的") : "OpenStreetMap"
+        let date = spot.lastUpdated ?? language.text("date unknown", "日期未知")
+        return spot.isCustom ? "\(source) · \(date)" : language.text("\(source) · updated \(date)", "\(source) · 更新於 \(date)")
     }
 }
