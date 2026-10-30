@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import Testing
 @testable import Leash
 
@@ -152,6 +153,80 @@ struct GameModelTests {
         return (game, walks)
     }
 
+    @Test func savesASmallerCopyOfTheDogPhoto() throws {
+        let (game, _) = try makeGame()
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 3000, height: 2000))
+        let big = renderer.jpegData(withCompressionQuality: 0.9) { context in
+            UIColor.white.setFill(); context.fill(CGRect(x: 0, y: 0, width: 3000, height: 2000))
+        }
+        #expect(game.saveDogPhoto(big, for: game.profile.id))
+        #expect(game.dogPhotoVersion == 1)
+        let url = try #require(game.dogPhotoURL(for: game.profile.id))
+        let saved = try #require(UIImage(contentsOfFile: url.path))
+        #expect(max(saved.size.width, saved.size.height) * saved.scale <= 1024)
+    }
+
+    @Test func eachDogKeepsItsOwnNameAndLook() throws {
+        let (game, _) = try makeGame()
+        game.updateProfile { $0.name = "Mochi"; $0.breedID = "shiba" }
+        var kuro = DogProfile()
+        kuro.name = "Kuro"
+        kuro.photoLook = DogLook(ears: .floppy, coat: 0x1A1A1A, earColor: 0x1A1A1A, muzzle: 0xFFFFFF, chest: 0xFFFFFF, paws: 0x1A1A1A)
+        kuro.usesPhoto = true
+        #expect(game.addDog(kuro))
+        #expect(game.profile.name == "Kuro")          // a new dog becomes the one on screen
+        #expect(game.dogLook?.coat == 0x1A1A1A)
+        game.updateProfile { $0.scarf = 0x4E8FD8 }
+
+        let mochi = try #require(game.roster.dogs.first { $0.name == "Mochi" })
+        #expect(game.selectDog(mochi.id))
+        #expect(game.profile.breedID == "shiba")
+        #expect(game.dogLook == nil)
+        #expect(game.profile.scarf != 0x4E8FD8)       // Kuro's collar stayed with Kuro
+
+        let reloaded = GameModel(walks: WalkViewModel(store: FakeWalkStore(), location: FakeLocation()),
+                                 photos: try PhotoLibrary(directory: directory), spots: SpotCatalog(directory: directory), directory: directory)
+        #expect(reloaded.roster.dogs.map(\.name) == ["Mochi", "Kuro"])
+        #expect(reloaded.profile.name == "Mochi")
+    }
+
+    @Test func eachDogWearsItsOwnDecoration() throws {
+        let (game, _) = try makeGame()
+        let first = game.profile.id
+        game.updateProfile { $0.accessory = .santaHat }
+        #expect(game.addDog(DogProfile()))
+        #expect(game.profile.accessory == nil)
+        game.updateProfile { $0.accessory = .pumpkin }
+        #expect(game.selectDog(first))
+        #expect(game.profile.accessory == .santaHat)
+    }
+
+    @Test func removingADogDeletesItsPhotoButKeepsTheLastDog() throws {
+        let (game, _) = try makeGame()
+        let first = game.profile.id
+        #expect(!game.removeDog(first))               // the only dog stays
+        var second = DogProfile()
+        second.name = "Kuro"
+        let photo = UIGraphicsImageRenderer(size: CGSize(width: 10, height: 10)).jpegData(withCompressionQuality: 0.9) { _ in }
+        #expect(game.addDog(second, photo: photo))
+        let url = try #require(game.dogPhotoURL(for: second.id))
+        #expect(FileManager.default.fileExists(atPath: url.path))
+        #expect(game.removeDog(second.id))
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+        #expect(game.profile.id == first)
+    }
+
+    @Test func oldSingleDogFileBecomesTheFirstDog() throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data(#"{"name":"Mochi","breedID":"corgi","scarf":1}"#.utf8).write(to: directory.appendingPathComponent("profile.json"))
+        try Data([0xFF, 0xD8]).write(to: directory.appendingPathComponent("my-dog.jpg"))
+        let (game, _) = try makeGame()
+        #expect(game.roster.dogs.count == 1)
+        #expect(game.profile.name == "Mochi")
+        let moved = try #require(game.dogPhotoURL(for: game.profile.id))
+        #expect(FileManager.default.fileExists(atPath: moved.path))
+    }
+
     @Test func tossingSpendsTreatsUntilResolved() throws {
         let (game, _) = try makeGame()
         let encounter = Encounter(id: "test#0", breed: Breed.named("formosan"), fromEgg: false)
@@ -276,6 +351,30 @@ struct DogLookTests {
         #expect(try DogAnalyzer.look(bitmap(), landmarks: marks).collar == nil)
     }
 
+    /// A dog of one color, half in light and half in shade (a quarter of it in deep shade).
+    private func shadedDog(lit: [UInt8], shade: Double) -> DogAnalyzer.Bitmap {
+        let side = 40
+        var bytes = [UInt8](repeating: 0, count: side * side * 4)
+        for y in 4..<36 {
+            for x in 4..<36 {
+                let factor = x < 20 ? 1 : (y < 20 ? shade : shade * 0.75)
+                let color = lit.map { UInt8(Double($0) * factor) }
+                bytes.replaceSubrange((y * side + x) * 4..<(y * side + x) * 4 + 4, with: color + [255])
+            }
+        }
+        return DogAnalyzer.Bitmap(width: side, height: side, bytes: bytes)
+    }
+
+    @Test func whiteDogInShadeIsStillWhite() throws {
+        let look = try DogAnalyzer.look(shadedDog(lit: [235, 235, 238], shade: 0.7), landmarks: nil)
+        #expect(look.coat >> 16 & 255 > 225 && look.coat & 255 > 225)
+    }
+
+    @Test func grayDogStaysGray() throws {
+        let look = try DogAnalyzer.look(shadedDog(lit: [150, 150, 152], shade: 0.8), landmarks: nil)
+        #expect(look.coat >> 16 & 255 < 170)
+    }
+
     @Test func emptyPhotoHasNoDog() {
         let empty = DogAnalyzer.Bitmap(width: 20, height: 20, bytes: [UInt8](repeating: 0, count: 20 * 20 * 4))
         #expect(throws: DogAnalyzer.Failure.self) { try DogAnalyzer.look(empty, landmarks: nil) }
@@ -292,6 +391,16 @@ struct DogLookTests {
         #expect(color(7, 12) == DogSprite.tag)
         #expect(color(3, 14) == 0x101010)   // paw
         #expect(color(6, 5) == 0xC08040)    // forehead
+    }
+
+    @Test func decorationsStayInsideTheSprite() {
+        for accessory in Accessory.allCases {
+            for ears in DogLook.Ears.allCases {
+                let pixels = DogSprite.pixels(for: accessory, ears: ears)
+                #expect(!pixels.isEmpty)
+                #expect(pixels.allSatisfy { (0..<16).contains($0.x) && (0..<16).contains($0.y) })
+            }
+        }
     }
 
     @Test func oldProfilesDecodeWithoutPhotoLook() throws {

@@ -7,10 +7,13 @@ struct PixelDog: View {
     var scarf: UInt32 = 0xE2574C
     var silhouette = false
     var look: DogLook? = nil
+    var accessory: Accessory? = nil
 
     var body: some View {
-        let pixels = look.map { DogSprite.pixels(look: $0, scarf: scarf) }
-            ?? Self.pixels(breed: breed, scarf: scarf, silhouette: silhouette)
+        let ears = look?.ears ?? (breed.ears == .pricked ? .pricked : .floppy)
+        let pixels = (look.map { DogSprite.pixels(look: $0, scarf: scarf) }
+            ?? Self.pixels(breed: breed, scarf: scarf, silhouette: silhouette))
+            + (accessory.map { DogSprite.pixels(for: $0, ears: ears) } ?? [])
         Canvas { context, size in
             let cell = CGSize(width: size.width / 16, height: size.height / 16)
             for pixel in pixels {

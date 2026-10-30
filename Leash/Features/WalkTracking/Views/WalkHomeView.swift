@@ -17,6 +17,8 @@ struct WalkHomeView: View {
     @State private var showingLibraryPicker = false
     @State private var pickedItem: PhotosPickerItem?
     @State private var arrivals = 0
+    /// Height of the My Dog content; its sheet fits this instead of filling the screen.
+    @State private var profileHeight: CGFloat = 640
     @AppStorage(Spot.plannedStorageKey) private var plannedID = ""
     private func t(_ english: String, _ chinese: String) -> String { language.text(english, chinese) }
     private var surface: Color { Theme.surface(colorScheme) }
@@ -34,7 +36,7 @@ struct WalkHomeView: View {
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button(t("Close", "關閉")) { sheet = nil } } }
             }
             .toasts(toaster)
-            .presentationDetents([.large]).presentationDragIndicator(.visible)
+            .presentationDetents(detents(for: selected)).presentationDragIndicator(.visible)
         }
         .confirmationDialog(t("Finish and save this walk?", "回家並儲存這次散步？"), isPresented: $confirmingFinish, titleVisibility: .visible) {
             Button(t("Finish walk", "回家，結束散步")) { finishWalk() }
@@ -59,7 +61,7 @@ struct WalkHomeView: View {
     @ViewBuilder private func sheetContent(_ selected: WalkSheet) -> some View {
         switch selected {
         case .settings: SettingsView()
-        case .profile: ProfileView()
+        case .profile: ProfileView(contentHeight: $profileHeight)
         case .diary: WalkDiaryView(model: model)
         case .quests: QuestsView(walks: model)
         case .dex: DexView()
@@ -78,6 +80,13 @@ struct WalkHomeView: View {
         }
     }
 
+    /// My Dog is short enough to sit lower than full screen (the navigation bar adds about 60pt);
+    /// it can't grow past full screen, and scrolls when the content is taller.
+    private func detents(for sheet: WalkSheet) -> Set<PresentationDetent> {
+        if case .profile = sheet { return [.height(profileHeight + 60)] }
+        return [.large]
+    }
+
     // MARK: Scene
 
     private func scene(safeArea: EdgeInsets) -> some View {
@@ -87,7 +96,7 @@ struct WalkHomeView: View {
             ZStack(alignment: .topLeading) {
                 PixelScene(outdoors: walk != nil)
                 WanderingDog(outdoors: walk != nil, name: game.profile.displayName(in: language),
-                             breed: game.dogBreed, scarf: game.profile.scarf, look: game.dogLook)
+                             breed: game.dogBreed, scarf: game.profile.scarf, look: game.dogLook, accessory: game.profile.accessory)
                 if walk != nil { visitor(in: size) }
                 if walk == nil { door(in: size) }
                 VStack(spacing: 10) {
@@ -112,7 +121,7 @@ struct WalkHomeView: View {
         return HStack(spacing: 6) {
             Button { sheet = .profile } label: {
                 HStack(spacing: 6) {
-                    PixelDog(breed: game.dogBreed, scarf: game.profile.scarf, look: game.dogLook).frame(width: 24, height: 24)
+                    PixelDog(breed: game.dogBreed, scarf: game.profile.scarf, look: game.dogLook, accessory: game.profile.accessory).frame(width: 24, height: 24)
                     Text(game.profile.displayName(in: language)).lineLimit(1)
                 }
                 .font(.system(.headline, design: .monospaced)).padding(.horizontal, 12).padding(.vertical, 8)

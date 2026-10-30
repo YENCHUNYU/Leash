@@ -28,6 +28,19 @@ nonisolated enum DogAnalyzer {
         try await Task.detached(priority: .userInitiated) { try analyze(data) }.value
     }
 
+    /// A JPEG at most 1024 px on its long side, upright, for keeping alongside the pixel dog.
+    static func smallJPEG(_ data: Data) -> Data? {
+        let options = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                       kCGImageSourceCreateThumbnailWithTransform: true,
+                       kCGImageSourceThumbnailMaxPixelSize: 1024] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(output, "public.jpeg" as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.8] as CFDictionary)
+        return CGImageDestinationFinalize(destination) ? output as Data : nil
+    }
+
     // MARK: Vision
 
     private static func analyze(_ data: Data) throws -> DogLook {
@@ -116,11 +129,21 @@ nonisolated enum DogAnalyzer {
         guard dog.count >= bitmap.width * bitmap.height / 50 else { throw Failure.noDog }
         func rgb(_ i: Int) -> RGB { RGB(bitmap.bytes[i * 4], bitmap.bytes[i * 4 + 1], bitmap.bytes[i * 4 + 2]) }
 
-        // The dog's main colors, most common first.
-        let clusters = kMeans(dog.map(rgb), k: 5)
-        let coat = clusters[0].color
+        // The dog's main colors as photographed, most common first.
+        let raw = kMeans(dog.map(rgb), k: 5)
         var nearest = [Int: Int]()
-        for i in dog { nearest[i] = clusters.indices.min { rgb(i).distance(to: clusters[$0].color) < rgb(i).distance(to: clusters[$1].color) }! }
+        for i in dog { nearest[i] = raw.indices.min { rgb(i).distance(to: raw[$0].color) < rgb(i).distance(to: raw[$1].color) }! }
+
+        // White fur in shade photographs as gray. If a good part of the dog is bright and colorless,
+        // it's a white dog: lift its light grays back to white. Gray dogs (no bright areas) and cream
+        // dogs (tinted) are left alone.
+        let white = raw.filter { $0.share >= 0.1 && $0.color.isNeutral && $0.color.luminance > 195 }
+            .map(\.color).max { $0.luminance < $1.luminance }?.whitened
+        let clusters = raw.map { cluster in
+            (color: white.flatMap { cluster.color.isNeutral && cluster.color.luminance >= 100 ? $0 : nil } ?? cluster.color,
+             share: cluster.share)
+        }
+        let coat = clusters[0].color
 
         // On a light or mid coat, anything much darker is nose, mouth or shadow. Dark coats have no limit.
         let darkLimit = coat.luminance >= 80 ? coat.luminance - 30 : -1
@@ -160,7 +183,7 @@ nonisolated enum DogAnalyzer {
 
         var look = DogLook(ears: .floppy, coat: coat.hex, earColor: DogSprite.shade(coat.hex, 0.8),
                            muzzle: (light ?? coat.lighter).hex, chest: (light ?? coat).hex, paws: coat.hex,
-                           photoColors: clusters.filter { $0.share >= 0.03 }.map(\.color.hex))
+                           photoColors: Array(NSOrderedSet(array: clusters.filter { $0.share >= 0.03 }.map(\.color.hex))) as? [UInt32] ?? [])
         guard let marks = landmarks else { return look.cute }
 
         let eyeMid = marks.eyes.isEmpty ? nil : CGPoint(x: marks.eyes.map(\.x).reduce(0, +) / Double(marks.eyes.count),
@@ -210,7 +233,7 @@ nonisolated enum DogAnalyzer {
         // Collar: between the neck and the head, look for a color that isn't the dog's fur —
         // something colorful, or near-black on a lighter dog.
         if let neck = marks.neck, let eyeMid {
-            let fur = clusters.filter { $0.share >= 0.08 }.map(\.color)
+            let fur = raw.filter { $0.share >= 0.08 }.map(\.color)
             var band = Set<Int>()
             // From a little below the neck point to a little above it, avoiding the nose and mouth.
             for step in -3...3 {
@@ -220,13 +243,17 @@ nonisolated enum DogAnalyzer {
                 band.formUnion(disc(center, radius: head * 0.35))
             }
             let lightDog = coat.luminance > 110
-            let odd = band.map(rgb).filter { (pixel: RGB) -> Bool in
-                let unlikeFur = fur.allSatisfy { pixel.distance(to: $0) > 3025 }
-                let standsOut = pixel.chroma > 60 || (lightDog && pixel.luminance < 45)
-                return unlikeFur && standsOut
-            }
-            if !band.isEmpty, odd.count >= max(4, band.count / 25) {
-                look.collar = kMeans(odd, k: 2)[0].color.hex
+            let unlikeFur = band.map(rgb).filter { pixel in fur.allSatisfy { pixel.distance(to: $0) > 3025 } }
+            let colorful = unlikeFur.filter { $0.chroma > 60 }
+            let dark = unlikeFur.filter { lightDog && $0.chroma <= 60 && $0.luminance < 45 }
+            // Lips and shadows are dark too, so a dark collar needs more evidence than a colorful one.
+            let found = colorful.count >= max(4, band.count / 40) ? colorful
+                : dark.count >= band.count / 20 ? dark : []
+            if !found.isEmpty {
+                // The lit half of the collar, not the part in shade.
+                let lit = found.sorted { $0.luminance > $1.luminance }.prefix(max(1, found.count / 2))
+                let n = Double(lit.count)
+                look.collar = RGB(r: lit.map(\.r).reduce(0, +) / n, g: lit.map(\.g).reduce(0, +) / n, b: lit.map(\.b).reduce(0, +) / n).hex
             }
         }
         return look.cute
@@ -240,6 +267,10 @@ nonisolated enum DogAnalyzer {
         init(r: Double, g: Double, b: Double) { self.r = r; self.g = g; self.b = b }
         var luminance: Double { 0.299 * r + 0.587 * g + 0.114 * b }
         var chroma: Double { max(r, g, b) - min(r, g, b) }
+        /// Gray, white or black: hardly any tint.
+        var isNeutral: Bool { chroma < max(r, g, b, 1) * 0.18 }
+        /// Most of the way to a soft white, keeping a hint of the original tint.
+        var whitened: RGB { RGB(r: r + (248 - r) * 0.6, g: g + (248 - g) * 0.6, b: b + (248 - b) * 0.6) }
         var hex: UInt32 { UInt32(r.rounded()) << 16 | UInt32(g.rounded()) << 8 | UInt32(b.rounded()) }
         var lighter: RGB { RGB(r: r + (255 - r) * 0.45, g: g + (255 - g) * 0.45, b: b + (255 - b) * 0.45) }
         func distance(to other: RGB) -> Double {

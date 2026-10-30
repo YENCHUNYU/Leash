@@ -1,9 +1,14 @@
 import SwiftUI
 
-/// Shows the dog read from a photo and lets the user fix ears, colors and collar before saving.
+/// Shows the dog read from a photo and lets the user name it and fix ears, colors and collar before saving.
 struct DogLookEditor: View {
-    let onSave: (DogLook) -> Void
+    let onSave: (DogLook, String) -> Void
+    /// The photo it was read from, shown on the back of the card.
+    let photo: UIImage?
+    /// What the dog is wearing, shown in the preview.
+    let accessory: Accessory?
     @State private var look: DogLook
+    @State private var name: String
     /// The collar found in the photo, kept as an option even if the user picks another.
     private let detectedCollar: UInt32?
     @Environment(GameModel.self) private var game
@@ -11,8 +16,11 @@ struct DogLookEditor: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.appLanguage) private var language
 
-    init(look: DogLook, onSave: @escaping (DogLook) -> Void) {
+    init(look: DogLook, photo: UIImage?, name: String, accessory: Accessory? = nil, onSave: @escaping (DogLook, String) -> Void) {
+        self.accessory = accessory
         _look = State(initialValue: look)
+        _name = State(initialValue: name)
+        self.photo = photo
         detectedCollar = look.collar
         self.onSave = onSave
     }
@@ -21,9 +29,16 @@ struct DogLookEditor: View {
         ScrollView {
             VStack(spacing: 14) {
                 VStack(spacing: 6) {
-                    PixelDog(scarf: look.collar ?? game.profile.scarf, look: look).frame(width: 140, height: 140)
-                        .animation(.default, value: look)
-                    Text(language.text("Here's your dog! Tap to fix anything we got wrong.", "這是你的狗狗！哪裡不像可以點選修改。"))
+                    DogFlipCard(photo: photo, side: 140) {
+                        PixelDog(scarf: look.collar ?? game.profile.scarf, look: look, accessory: accessory).animation(.default, value: look)
+                    }
+                    TextField(language.text("Name your dog", "幫狗狗取名字"), text: $name)
+                        .font(.system(.title3, design: .monospaced)).multilineTextAlignment(.center)
+                        .submitLabel(.done)
+                        .accessibilityLabel(language.text("Dog's name", "狗狗名字"))
+                    Text(photo == nil ? language.text("Here's your dog! Tap to fix anything we got wrong.", "這是你的狗狗！哪裡不像可以點選修改。")
+                         : language.text("Here's your dog! Tap the card to compare with the photo, and fix anything we got wrong below.",
+                                         "這是你的狗狗！點卡片可以翻面對照照片，哪裡不像可以在下面修改。"))
                         .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity).card()
@@ -57,7 +72,11 @@ struct DogLookEditor: View {
         .toolbar {
             ToolbarItem(placement: .cancellationAction) { Button(language.text("Cancel", "取消")) { dismiss() } }
             ToolbarItem(placement: .confirmationAction) {
-                Button(language.text("Use", "使用")) { onSave(look); dismiss() }.fontWeight(.bold)
+                Button(language.text("Use", "使用")) {
+                    onSave(look, String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(20)))
+                    dismiss()
+                }
+                .fontWeight(.bold)
             }
         }
     }

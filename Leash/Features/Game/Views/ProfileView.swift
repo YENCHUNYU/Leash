@@ -1,31 +1,36 @@
 import SwiftUI
 import PhotosUI
 
-/// Name the dog and pick a coat (unlocked by befriending that breed) and a collar (unlocked by level).
-/// The top-right menu reads a photo of the user's own dog (ears, fur colors) into a matching pixel dog.
+/// The user's dogs: pick which one is out, name it, adjust its look and dress it up. A photo of a real dog
+/// becomes a matching pixel dog, as a new dog or for the current one.
 struct ProfileView: View {
-    private enum Tab { case coat, scarf }
-
+    /// Reports how tall the content is, so the sheet can fit it instead of filling the screen.
+    @Binding var contentHeight: CGFloat
     @Environment(GameModel.self) private var game
     @Environment(Toaster.self) private var toaster
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.appLanguage) private var language
     @State private var name = ""
-    @State private var tab = Tab.coat
     @State private var showingCamera = false
     @State private var showingLibrary = false
     @State private var pickedItem: PhotosPickerItem?
     @State private var converting = false
     @State private var editing: EditingLook?
+    @State private var dogPhoto: UIImage?
+    /// Whether the next photo makes a new dog or updates the current one.
+    @State private var photoForNewDog = true
+    @State private var removing: DogProfile?
     @FocusState private var editingName: Bool
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 4)
 
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
+                dogsRow
                 VStack(spacing: 8) {
-                    PixelDog(breed: game.dogBreed, scarf: game.profile.scarf, look: game.dogLook)
-                        .frame(width: 120, height: 120)
+                    // Only the photo dog flips; breed coats have no photo behind them.
+                    DogFlipCard(photo: game.dogLook == nil ? nil : dogPhoto, side: 120) {
+                        PixelDog(breed: game.dogBreed, scarf: game.profile.scarf, look: game.dogLook, accessory: game.profile.accessory)
+                    }
                         .opacity(converting ? 0.3 : 1)
                         .overlay { if converting { ProgressView() } }
                         .animation(.default, value: game.profile)
@@ -35,40 +40,35 @@ struct ProfileView: View {
                         .onSubmit(saveName)
                         .onChange(of: editingName) { _, editing in if !editing { saveName() } }
                         .accessibilityLabel(language.text("Dog's name", "狗狗名字"))
-                    if let look = game.dogLook, !converting {
-                        Button(language.text("Adjust look", "調整樣子")) { editing = EditingLook(look: look) }
-                            .font(.caption)
+                    if converting {
+                        Text(language.text("Looking at your dog…", "正在看你的狗狗…")).font(.caption).foregroundStyle(.secondary)
                     } else {
-                        Text(converting ? language.text("Looking at your dog…", "正在看你的狗狗…") : game.dogBreed.name(in: language))
-                            .font(.caption).foregroundStyle(.secondary)
+                        // Dogs without a photo start from their breed's colors.
+                        Button(language.text("Adjust look", "調整樣子")) { editing = editCurrent(game.dogLook ?? DogLook(breed: game.dogBreed)) }
+                            .font(.caption)
                     }
                 }
                 .frame(maxWidth: .infinity).card()
-
-                Picker("", selection: $tab) {
-                    Label(language.text("Coat", "毛色"), systemImage: "pawprint.fill").tag(Tab.coat)
-                    Label(language.text("Collar", "項圈"), systemImage: "paintpalette.fill").tag(Tab.scarf)
-                }
-                .pickerStyle(.segmented)
-
-                LazyVGrid(columns: columns, spacing: 8) {
-                    switch tab {
-                    case .coat:
-                        if game.profile.photoLook != nil { photoTile }
-                        ForEach(Breed.all) { coatTile($0) }
-                    case .scarf:
-                        if let collar = game.profile.photoLook?.collar { photoCollarTile(collar) }
-                        ForEach(Array(DogProfile.scarves.enumerated()), id: \.offset) { scarfTile(index: $0, color: $1) }
-                    }
-                }
-                Text(tab == .coat ? language.text("Make new friends to unlock their look", "交到新朋友就能解鎖牠的樣子")
-                                  : language.text("Level up for more colors", "升級解鎖更多顏色"))
-                    .font(.footnote).foregroundStyle(.secondary)
+                dressUp
             }
             .padding(16)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
         }
         .background(Theme.background(colorScheme))
         .onAppear { name = game.profile.name }
+        .onChange(of: game.profile.id) { name = game.profile.name }
+        .task(id: "\(game.profile.id)-\(game.dogPhotoVersion)") {
+            dogPhoto = game.dogPhotoURL(for: game.profile.id).flatMap { UIImage(contentsOfFile: $0.path) }
+        }
+        .confirmationDialog(language.text("Remove \(removing?.displayName(in: language) ?? "")?", "移除「\(removing?.displayName(in: language) ?? "")」？"),
+                            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+                            titleVisibility: .visible, presenting: removing) { dog in
+            Button(language.text("Remove", "移除"), role: .destructive) {
+                if !game.removeDog(dog.id) { toaster.show(language.text("Didn't remove, try again", "沒移除，再試一次")) }
+            }
+        } message: { _ in
+            Text(language.text("Its name, look and photo will be deleted.", "牠的名字、樣子和照片都會刪除。"))
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) { photoMenu }
         }
@@ -77,10 +77,9 @@ struct ProfileView: View {
         }
         .sheet(item: $editing) { item in
             NavigationStack {
-                DogLookEditor(look: item.look) { look in
-                    if update({ $0.photoLook = look; $0.usesPhoto = true; if let collar = look.collar { $0.scarf = collar } }) {
-                        toaster.show(language.text("✨ Meet your pixel dog", "✨ 像素狗狗完成了"))
-                    }
+                DogLookEditor(look: item.look, photo: item.photo, name: item.name,
+                              accessory: item.dogID == nil ? nil : game.profile.accessory) { look, name in
+                    save(item, look: look, name: name)
                 }
             }
             .presentationDragIndicator(.visible)
@@ -101,14 +100,125 @@ struct ProfileView: View {
     private struct EditingLook: Identifiable {
         let id = UUID()
         let look: DogLook
+        let photo: UIImage?
+        let name: String
+        /// The dog being changed, or nil for a new dog.
+        var dogID: UUID? = nil
+        /// Set for a newly taken or chosen photo, which is saved when the look is accepted.
+        var photoData: Data? = nil
     }
+
+    private func editCurrent(_ look: DogLook) -> EditingLook {
+        EditingLook(look: look, photo: dogPhoto, name: game.profile.name, dogID: game.profile.id)
+    }
+
+    // MARK: Dogs
+
+    /// All of the user's dogs; tap one to make it the dog on screen and on walks.
+    private var dogsRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(game.roster.dogs) { dog in
+                    let active = dog.id == game.profile.id
+                    Button { game.selectDog(dog.id) } label: {
+                        VStack(spacing: 4) {
+                            PixelDog(breed: Breed.named(dog.breedID), scarf: dog.scarf, look: dog.usesPhoto ? dog.photoLook : nil,
+                                     accessory: dog.accessory)
+                                .frame(width: 44, height: 44)
+                            Text(dog.displayName(in: language)).font(.system(.caption, design: .monospaced)).lineLimit(1)
+                        }
+                        .frame(width: 76).padding(.vertical, 8)
+                        .background(Theme.surface(colorScheme), in: RoundedRectangle(cornerRadius: 14))
+                        .overlay { RoundedRectangle(cornerRadius: 14).stroke(active ? Theme.accent : .clear, lineWidth: 3) }
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        if game.roster.dogs.count > 1 {
+                            Button(role: .destructive) { removing = dog } label: {
+                                Label(language.text("Remove", "移除"), systemImage: "trash")
+                            }
+                        }
+                    }
+                    .accessibilityLabel(dog.displayName(in: language))
+                    .accessibilityAddTraits(active ? .isSelected : [])
+                    .accessibilityHint(language.text("Makes this the dog on screen and on walks", "讓這隻狗狗出現在畫面和散步中"))
+                }
+                Menu { addDogItems } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: "plus").font(.title2.weight(.semibold)).frame(width: 44, height: 44)
+                        Text(language.text("Add", "新增")).font(.system(.caption, design: .monospaced))
+                    }
+                    .foregroundStyle(.secondary)
+                    .frame(width: 76).padding(.vertical, 8)
+                    .background(Theme.surface(colorScheme).opacity(0.6), in: RoundedRectangle(cornerRadius: 14))
+                    .overlay { RoundedRectangle(cornerRadius: 14).stroke(Theme.line(colorScheme), style: StrokeStyle(lineWidth: 1.5, dash: [4])) }
+                }
+                .disabled(converting)
+                .accessibilityLabel(language.text("Add a dog", "新增狗狗"))
+            }
+            .padding(2)
+        }
+    }
+
+    @ViewBuilder private var addDogItems: some View {
+        photoButtons(newDog: true)
+        Button {
+            editing = EditingLook(look: DogLook(breed: Breed.named("mixy")), photo: nil, name: "")
+        } label: { Label(language.text("Without Photo", "不用照片"), systemImage: "paintpalette") }
+    }
+
+    @ViewBuilder private func photoButtons(newDog: Bool) -> some View {
+        if UIImagePickerController.isSourceTypeAvailable(.camera) {
+            Button { photoForNewDog = newDog; showingCamera = true } label: { Label(language.text("Take Photo", "拍照"), systemImage: "camera") }
+        }
+        Button { photoForNewDog = newDog; showingLibrary = true } label: {
+            Label(language.text("Choose Photo", "從相簿選擇"), systemImage: "photo.on.rectangle")
+        }
+    }
+
+    // MARK: Dress up
+
+    /// Things to wear, shown on the current dog.
+    private var dressUp: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(language.text("Dress Up", "裝扮")).font(.system(.headline, design: .monospaced))
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+                outfitTile(nil)
+                ForEach(Accessory.allCases) { outfitTile($0) }
+            }
+        }
+        .card()
+    }
+
+    private func outfitTile(_ item: Accessory?) -> some View {
+        let selected = game.profile.accessory == item
+        let label = item?.name(in: language) ?? language.text("None", "不穿")
+        return Button {
+            update { $0.accessory = item }
+        } label: {
+            VStack(spacing: 4) {
+                PixelDog(breed: game.dogBreed, scarf: game.profile.scarf, look: game.dogLook, accessory: item)
+                    .frame(width: 56, height: 56)
+                Text(label).font(.system(.caption, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.8)
+                    .foregroundStyle(selected ? .primary : .secondary)
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 8)
+            .background(Theme.background(colorScheme), in: RoundedRectangle(cornerRadius: 12))
+            .overlay { RoundedRectangle(cornerRadius: 12).stroke(selected ? Theme.accent : .clear, lineWidth: 3) }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    // MARK: Photo to pixel dog
 
     private var photoMenu: some View {
         Menu {
-            if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                Button { showingCamera = true } label: { Label(language.text("Take Photo", "拍照"), systemImage: "camera") }
+            Section(language.text("Add a Dog", "新增狗狗")) { photoButtons(newDog: true) }
+            Section(language.text("New Photo of \(game.profile.displayName(in: language))", "幫「\(game.profile.displayName(in: language))」換照片")) {
+                photoButtons(newDog: false)
             }
-            Button { showingLibrary = true } label: { Label(language.text("Choose Photo", "從相簿選擇"), systemImage: "photo.on.rectangle") }
         } label: {
             Image(systemName: "camera.fill")
         }
@@ -119,10 +229,13 @@ struct ProfileView: View {
     /// Reads the dog's traits, then opens the editor so the user can check them before saving.
     private func readDog(_ data: Data) {
         converting = true
+        let forNewDog = photoForNewDog
         Task {
             defer { converting = false }
             do {
-                editing = EditingLook(look: try await DogAnalyzer.look(from: data))
+                let look = try await DogAnalyzer.look(from: data)
+                editing = EditingLook(look: look, photo: UIImage(data: data), name: forNewDog ? "" : game.profile.name,
+                                      dogID: forNewDog ? nil : game.profile.id, photoData: data)
             } catch {
                 toaster.show(language.text("Couldn't find a dog. Try a photo where your dog fills the frame",
                                            "找不到狗狗，試試狗狗佔滿畫面的照片"))
@@ -130,76 +243,29 @@ struct ProfileView: View {
         }
     }
 
-    private var photoTile: some View {
-        Button {
-            if game.profile.usesPhoto, let look = game.profile.photoLook { editing = EditingLook(look: look) }
-            else { update { $0.usesPhoto = true } }
-        } label: {
-            tile(selected: game.profile.usesPhoto, locked: false) {
-                PixelDog(scarf: game.profile.scarf, look: game.profile.photoLook)
+    /// Saves an accepted look: a new dog, or the dog it was made for. The photo is kept only now.
+    private func save(_ item: EditingLook, look: DogLook, name: String) {
+        guard let dogID = item.dogID else {
+            var dog = DogProfile()
+            dog.name = name
+            dog.photoLook = look
+            dog.usesPhoto = true
+            if let collar = look.collar { dog.scarf = collar }
+            if game.addDog(dog, photo: item.photoData) {
+                toaster.show(language.text("✨ Welcome, \(dog.displayName(in: language))!", "✨ 歡迎「\(dog.displayName(in: language))」！"))
+            } else {
+                toaster.show(language.text("Didn't save, try again", "沒存到，再試一次"))
             }
+            return
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(language.text("My own dog", "我的狗狗本人"))
-        .accessibilityAddTraits(game.profile.usesPhoto ? .isSelected : [])
-    }
-
-    private func tile(selected: Bool, locked: Bool, @ViewBuilder content: () -> some View) -> some View {
-        content()
-            .padding(10).frame(maxWidth: .infinity).aspectRatio(1, contentMode: .fit)
-            .background(Theme.surface(colorScheme), in: RoundedRectangle(cornerRadius: 14))
-            .overlay { RoundedRectangle(cornerRadius: 14).stroke(selected ? Theme.accent : .clear, lineWidth: 3) }
-            .overlay(alignment: .bottomTrailing) {
-                if locked { PixelIcon(glyph: .lock).frame(width: 16).padding(6) }
-                else if selected { Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.accent).padding(4) }
-            }
-    }
-
-    private func coatTile(_ breed: Breed) -> some View {
-        let unlocked = game.isUnlocked(breed)
-        return Button {
-            update { $0.breedID = breed.id; $0.usesPhoto = false }
-        } label: {
-            tile(selected: !game.profile.usesPhoto && game.profile.breedID == breed.id, locked: !unlocked) {
-                PixelDog(breed: breed, scarf: game.profile.scarf, silhouette: !unlocked)
-            }
+        if let data = item.photoData, !game.saveDogPhoto(data, for: dogID) {
+            toaster.show(language.text("Photo didn't save", "照片沒存到"))
         }
-        .buttonStyle(.plain).disabled(!unlocked)
-        .accessibilityLabel(unlocked ? breed.name(in: language) : language.text("Locked", "未解鎖"))
-        .accessibilityAddTraits(!game.profile.usesPhoto && game.profile.breedID == breed.id ? .isSelected : [])
-    }
-
-    private func scarfTile(index: Int, color: UInt32) -> some View {
-        let unlocked = index < DogProfile.unlockedScarves(level: game.progress.level)
-        return Button {
-            update { $0.scarf = color }
-        } label: {
-            tile(selected: game.profile.scarf == color, locked: !unlocked) {
-                RoundedRectangle(cornerRadius: 6).fill(unlocked ? Color(leashHex: color) : Theme.line(colorScheme))
-                    .overlay { RoundedRectangle(cornerRadius: 6).stroke(.black.opacity(0.15)) }
-                    .padding(8)
-            }
+        game.selectDog(dogID)
+        if update({ $0.name = name; $0.photoLook = look; $0.usesPhoto = true; if let collar = look.collar { $0.scarf = collar } }) {
+            self.name = name
+            toaster.show(language.text("✨ Look saved", "✨ 樣子已儲存"))
         }
-        .buttonStyle(.plain).disabled(!unlocked)
-        .accessibilityLabel(unlocked ? language.text("Collar color \(index + 1)", "項圈顏色 \(index + 1)") : language.text("Locked", "未解鎖"))
-        .accessibilityAddTraits(game.profile.scarf == color ? .isSelected : [])
-    }
-
-    /// The collar seen in the user's photo; always available.
-    private func photoCollarTile(_ color: UInt32) -> some View {
-        Button {
-            update { $0.scarf = color }
-        } label: {
-            tile(selected: game.profile.scarf == color, locked: false) {
-                RoundedRectangle(cornerRadius: 6).fill(Color(leashHex: color))
-                    .overlay { RoundedRectangle(cornerRadius: 6).stroke(.black.opacity(0.15)) }
-                    .overlay { Image(systemName: "camera.fill").font(.caption).foregroundStyle(.white).shadow(radius: 1) }
-                    .padding(8)
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(language.text("Collar from your photo", "照片裡的項圈"))
-        .accessibilityAddTraits(game.profile.scarf == color ? .isSelected : [])
     }
 
     private func saveName() {
