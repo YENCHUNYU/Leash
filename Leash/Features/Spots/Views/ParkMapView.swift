@@ -8,6 +8,10 @@ struct ParkMapView: View {
     let fallbackCenter: CLLocation
     let plannedID: String?
     @Binding var selection: String?
+    /// Typed search; when it changes, the map moves to the nearest matches so they're on screen.
+    var searchText = ""
+    /// Called when the map stops moving, with its center and whether it's zoomed in enough to look for parks there.
+    var onSettle: (CLLocationCoordinate2D) -> Void = { _ in }
     @Environment(\.appLanguage) private var language
     @State private var position = MapCameraPosition.automatic
     @State private var region: MKCoordinateRegion?
@@ -21,8 +25,8 @@ struct ParkMapView: View {
             UserAnnotation()
             ForEach(visible) { park in
                 if let coordinate = park.coordinate {
-                    Marker(park.name, systemImage: park.id == plannedID ? "flag.fill" : "pawprint.fill", coordinate: coordinate)
-                        .tint(park.id == plannedID ? Theme.good : Theme.accent)
+                    Marker(park.name, systemImage: park.id == plannedID ? "flag.fill" : Self.symbol(park.kind), coordinate: coordinate)
+                        .tint(park.id == plannedID ? Theme.ink : Self.tint(park.kind))
                         .tag(park.id)
                 }
             }
@@ -32,7 +36,11 @@ struct ParkMapView: View {
             MapCompass()
             MapScaleView()
         }
-        .onMapCameraChange(frequency: .onEnd) { region = $0.region }
+        .onMapCameraChange(frequency: .onEnd) { context in
+            region = context.region
+            // Apple Maps search covers about 2.5 km, so only search once zoomed in to a neighborhood.
+            if context.region.span.latitudeDelta < 0.15 { onSettle(context.region.center) }
+        }
         .overlay(alignment: .bottom) {
             if visible.count >= Self.markerLimit {
                 Text(language.text("Showing the \(Self.markerLimit) parks nearest the map center. Zoom in for more.",
@@ -44,6 +52,39 @@ struct ParkMapView: View {
         .onAppear { recenter() }
         .onChange(of: userLocation == nil) { recenter() }
         .onChange(of: fallbackCenter.coordinate.latitude) { centeredOnUser = false; recenter() }
+        .onChange(of: searchText) { showMatches() }
+        // Matches found later (e.g. from Apple Maps): move only if none are on screen yet.
+        .onChange(of: parks.first?.id) { if visibleParks.isEmpty { showMatches() } }
+    }
+
+    static func symbol(_ kind: Spot.Kind) -> String {
+        switch kind {
+        case .dogPark: "pawprint.fill"
+        case .park: "tree.fill"
+        case .trail: "figure.hiking"
+        }
+    }
+
+    static func tint(_ kind: Spot.Kind) -> Color {
+        kind == .dogPark ? Theme.accent : Theme.good
+    }
+
+    /// Fits the map to the matches nearest the user (or the current view), so a search never shows an empty map.
+    private func showMatches() {
+        guard !searchText.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        let origin = userLocation ?? region.map { CLLocation(latitude: $0.center.latitude, longitude: $0.center.longitude) } ?? fallbackCenter
+        let nearest = parks.compactMap { park in park.distance(from: origin).map { (park, $0) } }
+            .sorted { $0.1 < $1.1 }.prefix(8).compactMap(\.0.coordinate)
+        guard let first = nearest.first else { return }
+        // Keep the closest few together; don't zoom out to a continent for one far match.
+        let near = nearest.filter { CLLocation(latitude: $0.latitude, longitude: $0.longitude)
+            .distance(from: CLLocation(latitude: first.latitude, longitude: first.longitude)) < 40_000 }
+        let lats = near.map(\.latitude), lons = near.map(\.longitude)
+        let center = CLLocationCoordinate2D(latitude: (lats.min()! + lats.max()!) / 2, longitude: (lons.min()! + lons.max()!) / 2)
+        let span = MKCoordinateSpan(latitudeDelta: max((lats.max()! - lats.min()!) * 1.5, 0.02),
+                                    longitudeDelta: max((lons.max()! - lons.min()!) * 1.5, 0.02))
+        withAnimation { position = .region(MKCoordinateRegion(center: center, span: span)) }
+        centeredOnUser = true
     }
 
     private var visibleParks: [Spot] {

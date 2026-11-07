@@ -20,6 +20,10 @@ struct WalkSummaryView<Footer: View>: View {
                 }
                 Text("\(walk.startedAt.formatted(.dateTime.locale(language.locale))) · \(WalkFormat.spotName(walk, spots: spots, language: language))")
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                // After a walk at a park: a quiet, collapsed way to tell others what's there.
+                if walk.endedAt != nil, let spot = spots.spot(id: walk.spotID), spot.coordinate != nil {
+                    FacilityPrompt(spot: spot)
+                }
                 HStack {
                     metric(language.text("Distance", "距離"), value: WalkFormat.distance(walk, locale: language.locale))
                     TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -86,17 +90,34 @@ extension WalkSummaryView where Footer == EmptyView {
 private struct RouteMap: View {
     let walk: Walk
     @Environment(\.appLanguage) private var language
+    @State private var drawing: (outlines: [[CLLocationCoordinate2D]], pieces: [RouteDrawing.Piece]) = ([], [])
 
     var body: some View {
-        let segments = walk.segments
+        let line = StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round)
         Map {
-            ForEach(segments.indices, id: \.self) { index in
-                MapPolyline(coordinates: segments[index].map(\.coordinate)).stroke(.orange, lineWidth: 5)
+            // A soft white edge under the colors keeps the line readable on any map.
+            ForEach(drawing.outlines.indices, id: \.self) { index in
+                MapPolyline(coordinates: drawing.outlines[index])
+                    .stroke(.white.opacity(0.85), style: StrokeStyle(lineWidth: 10, lineCap: .round, lineJoin: .round))
             }
-            if let point = walk.route.last {
-                Marker(language.text("Current location", "目前位置"), coordinate: point.coordinate)
+            ForEach(drawing.pieces.indices, id: \.self) { index in
+                let piece = drawing.pieces[index]
+                MapPolyline(coordinates: piece.coordinates).stroke(Color(leashHex: RouteDrawing.color(heat: piece.heat)), style: line)
+            }
+            if let first = walk.route.first, walk.endedAt != nil {
+                Annotation(language.text("Start", "起點"), coordinate: first.coordinate, anchor: .center) { dot(0x3DBE4C, label: language.text("Start", "起點")) }
+                    .annotationTitles(.hidden)
+            }
+            if let last = walk.route.last {
+                if walk.endedAt != nil {
+                    Annotation(language.text("End", "終點"), coordinate: last.coordinate, anchor: .center) { dot(0xE2453C, label: language.text("End", "終點")) }
+                        .annotationTitles(.hidden)
+                } else {
+                    Marker(language.text("Current location", "目前位置"), coordinate: last.coordinate)
+                }
             }
         }
+        .task(id: walk.route) { drawing = RouteDrawing.pieces(for: walk) }
         .overlay {
             if walk.route.isEmpty {
                 Text(language.text("No route this time. Your route appears when GPS is available.", "這次沒有記到路線。取得 GPS 位置後，路線會顯示在這裡。"))
@@ -104,5 +125,22 @@ private struct RouteMap: View {
                     .padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)).padding()
             }
         }
+    }
+
+    /// A dot centered on the point, with a small label under it that doesn't shift the dot.
+    private func dot(_ color: UInt32, label: String) -> some View {
+        Circle().fill(Color(leashHex: color)).frame(width: 14, height: 14)
+            .overlay(Circle().stroke(.white, lineWidth: 3))
+            .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
+            .overlay(alignment: .top) {
+                Text(label)
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Color(leashHex: color), in: Capsule())
+                    .overlay(Capsule().stroke(.white, lineWidth: 1.5))
+                    .fixedSize()
+                    .offset(y: 18)
+            }
     }
 }

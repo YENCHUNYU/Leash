@@ -3,11 +3,11 @@ import CoreLocation
 
 /// Filter chips on the Spots screen. All but `nearest` require the facility to be mapped.
 enum ParkFilter: CaseIterable, Hashable {
-    case nearest, offLeash, water, fenced, smallDogArea, wasteStations, shade
+    case nearest, dogParksOnly, offLeash, water, fenced, smallDogArea, wasteStations, shade
 
     var tag: Spot.Tag? {
         switch self {
-        case .nearest: nil
+        case .nearest, .dogParksOnly: nil
         case .offLeash: .offLeash
         case .water: .water
         case .fenced: .fence
@@ -17,11 +17,12 @@ enum ParkFilter: CaseIterable, Hashable {
         }
     }
 
-    var systemImage: String { tag?.systemImage ?? "location.fill" }
+    var systemImage: String { self == .dogParksOnly ? "pawprint.fill" : tag?.systemImage ?? "location.fill" }
 
     func label(in language: AppLanguage) -> String {
         switch self {
         case .nearest: language.text("Nearest", "最近")
+        case .dogParksOnly: language.text("Dog parks only", "只看狗公園")
         case .offLeash: language.text("Off-leash", "可放繩")
         case .water: language.text("Drinking water", "飲水")
         case .fenced: language.text("Fenced", "有圍欄")
@@ -43,7 +44,8 @@ struct ParkQuery: Equatable {
 
     func matches(_ spot: Spot) -> Bool {
         guard region == nil || spot.region == region, subregion == nil || spot.subregion == subregion,
-              requiredTags.isSubset(of: spot.tags) else { return false }
+              requiredTags.isSubset(of: spot.tags),
+              !filters.contains(.dogParksOnly) || spot.isDogPark else { return false }
         let needle = text.trimmingCharacters(in: .whitespaces)
         guard !needle.isEmpty else { return true }
         let haystack = [spot.name, spot.address, spot.region, spot.subregion, Regions.displayName(spot.region)].joined(separator: " ")

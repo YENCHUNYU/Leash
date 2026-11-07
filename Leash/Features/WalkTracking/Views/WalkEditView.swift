@@ -10,6 +10,7 @@ struct WalkEditView: View {
     @Environment(Toaster.self) private var toaster
     @Environment(\.dismiss) private var dismiss
     @Environment(\.appLanguage) private var language
+    @State private var confirmingDelete = false
 
     init(walk: Walk, model: WalkViewModel) {
         self.model = model
@@ -39,10 +40,28 @@ struct WalkEditView: View {
                 if game.roster.dogs.count > 1 { dogsSection }
                 countsSection
             }
+            // Visible way to delete; swiping left on the diary row does the same.
+            Section {
+                Button(role: .destructive) { confirmingDelete = true } label: {
+                    Label(language.text("Delete this entry", "刪除這筆日記"), systemImage: "trash")
+                        .frame(maxWidth: .infinity)
+                }
+            }
         }
         .onAppear {
             // Walks from before there could be several dogs were with the main dog.
             if walk.dogIDs.isEmpty && !walk.isIndoor { walk.dogIDs = [game.profile.id] }
+        }
+        .pixelDialog(language.text("Delete this entry?", "刪除這筆日記？"),
+                     message: language.text("Its route and counts will be removed. Photos stay in your album.",
+                                            "路線和紀錄會一起刪除，照片會留在相簿。"),
+                     isPresented: $confirmingDelete, confirm: language.text("Delete", "刪除"), destructive: true,
+                     cancel: language.text("Cancel", "取消")) {
+            if model.delete(walk) {
+                dismiss()
+            } else {
+                toaster.show(language.text("Didn't delete, try again", "沒刪掉，再試一次"))
+            }
         }
         .navigationTitle(language.text("Edit entry", "編輯日記"))
         .navigationBarTitleDisplayMode(.inline)
@@ -122,6 +141,8 @@ struct WalkEditView: View {
         let trimmed = walk.note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         walk.note = trimmed.isEmpty ? nil : String(trimmed.prefix(500))
         if model.update(walk) {
+            // An Apple Maps park is only in memory until kept; keep it so the title survives a relaunch.
+            if let spot = spots.spot(id: walk.spotID) { spots.keep(spot) }
             dismiss()
         } else {
             toaster.show(language.text("Didn't save, try again", "沒存到，再試一次"))

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// A dog walking around the room or park. How much it moves depends on its personality.
-/// Tap to pet it (it hops and hearts float up); drag to pick it up and put it somewhere else.
+/// Tap to pet it (it hops, smiles and hearts float up); drag to pick it up by the scruff and put it somewhere else.
 struct WanderingDog: View {
     /// Spreads several dogs across the floor so they don't start on top of each other.
     static func start(_ index: Int, of count: Int) -> CGPoint {
@@ -30,9 +30,13 @@ struct WanderingDog: View {
     @State private var hop: CGFloat = 0
     @State private var hearts: [Heart] = []
     @State private var pets = 0
+    /// Smiling while the hearts float up.
+    @State private var happy = false
+    /// Pendulum angle while held by the scruff, driven by how fast it's carried sideways.
+    @State private var swing: Double = 0
     @State private var restingUntil = Date.distantPast
 
-    /// Where a dog can be put down: below the door (which is a button), above the controls.
+    /// Where a dog can be put down: on the floor, above the controls.
     private static let xRange = 0.1...0.9
     private static let yRange = 0.48...0.82
     private static let floor = 0.58...0.74
@@ -50,15 +54,19 @@ struct WanderingDog: View {
             let held = dragPoint != nil
             let spot = dragPoint ?? CGPoint(x: size.width * (position ?? start).x, y: size.height * (position ?? start).y)
             VStack(spacing: 4) {
-                TimelineView(.animation(minimumInterval: 0.12, paused: reduceMotion || scenePhase != .active)) { context in
-                    // Bounces faster while walking or held; held dogs wriggle.
-                    let rate = held ? 6 : walking ? (personality == .active ? 6 : 4) : 1.25
-                    let beat = Int(context.date.timeIntervalSinceReferenceDate * rate) % 2
-                    PixelDog(breed: breed, scarf: scarf, look: look, accessory: accessory).frame(width: side, height: side)
+                TimelineView(.animation(minimumInterval: held ? 1.0 / 30 : 0.12, paused: reduceMotion || scenePhase != .active)) { context in
+                    let time = context.date.timeIntervalSinceReferenceDate
+                    let rate = walking ? (personality == .active ? 6 : 4) : 1.25
+                    let beat = Int(time * rate) % 2
+                    // Held by the scruff: hangs a little stretched and keeps swinging side to side.
+                    let dangle = held && !reduceMotion ? sin(time * 5.5) * 12 : 0
+                    PixelDog(breed: breed, scarf: scarf, look: look, accessory: accessory, happy: happy).frame(width: side, height: side)
                         .scaleEffect(x: facingLeft ? -1 : 1, y: 1)
-                        .rotationEffect(.degrees(held && !reduceMotion ? (beat == 0 ? -6 : 6) : 0))
+                        .scaleEffect(x: held ? 0.93 : 1, y: held ? 1.1 : 1, anchor: .top)
+                        .rotationEffect(.degrees(dangle), anchor: .top)
                         .offset(y: reduceMotion || held ? 0 : (beat == 0 ? 0 : -3))
                 }
+                .rotationEffect(.degrees(held ? swing : 0), anchor: .top)
                 .overlay(alignment: .top) { heartsView(side: side) }
                 .offset(y: hop)
                 Text(name).font(.system(.caption, design: .monospaced))
@@ -67,7 +75,8 @@ struct WanderingDog: View {
                     .background(Theme.overlay, in: RoundedRectangle(cornerRadius: 7))
                     .opacity(held ? 0 : 1)
             }
-            .scaleEffect(held ? 1.15 : 1)
+            // Hang from the finger: the top of the head sits under the touch point.
+            .offset(y: held ? side * 0.4 + 10 : 0)
             .shadow(color: .black.opacity(held ? 0.25 : 0), radius: 8, y: 10)
             .contentShape(Rectangle())
             .onTapGesture(perform: pet)
@@ -76,10 +85,17 @@ struct WanderingDog: View {
                     .onChanged { value in
                         if dragPoint == nil { walking = false; position = position ?? start }
                         dragPoint = value.location
+                        // Body lags behind the hand: carried right, it swings left.
+                        guard !reduceMotion else { return }
+                        let target = (value.velocity.width / 45).clamped(to: -30...30)
+                        withAnimation(.interpolatingSpring(stiffness: 140, damping: 7)) { swing = target }
                     }
-                    .onEnded { value in drop(at: value.location, in: size) }
+                    .onEnded { value in
+                        swing = 0
+                        drop(at: value.location, in: size)
+                    }
             )
-            .animation(.spring(duration: 0.25), value: held)
+            .animation(.spring(duration: 0.3, bounce: 0.3), value: held)
             .position(spot)
         }
         .coordinateSpace(.named("floor"))
@@ -112,7 +128,13 @@ struct WanderingDog: View {
     /// Happy: a couple of hops and a few hearts. It stays put for a moment afterwards.
     private func pet() {
         pets += 1
+        let pet = pets
         walking = false
+        happy = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.6))
+            if pets == pet { happy = false }  // Another pet keeps the smile going.
+        }
         restingUntil = .now.addingTimeInterval(3)
         let side: CGFloat = 40
         let new = (0..<4).map { _ in Heart(dx: .random(in: -side...side)) }

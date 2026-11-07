@@ -1,0 +1,58 @@
+5 of 54 regions already downloaded
+[1/49] US-CA: 906 elements
+[2/49] US-CO: 1636 elements
+[3/49] US-CT: 73 elements
+[4/49] US-DE: 27 elements
+US-DC: attempt 1 failed (curl: (56) Recv failure: Operation timed out), retrying
+[5/49] US-DC: 35 elements
+US-FL: attempt 1 failed (curl: (28) Operation timed out after 1048288 milliseconds with 441902 bytes received), retrying
+US-FL: attempt 2 failed (curl: (6) Could not resolve host: overpass-api.de), retrying
+[6/49] US-FL: 661 elements
+[7/49] US-GA: 654 elements
+[8/49] US-HI: 16 elements
+[9/49] US-ID: 52 elements
+[10/49] US-IL: 1066 elements
+[11/49] US-IN: 166 elements
+[12/49] US-IA: 284 elements
+[13/49] US-KS: 236 elements
+[14/49] US-KY: 68 elements
+[15/49] US-LA: 83 elements
+[16/49] US-ME: 70 elements
+US-MD: attempt 1 failed (curl: (56) The requested URL returned error: 502), retrying
+[17/49] US-MD: 219 elements
+[18/49] US-MA: 498 elements
+[19/49] US-MI: 234 elements
+[20/49] US-MN: 178 elements
+[21/49] US-MS: 45 elements
+[22/49] US-MO: 144 elements
+[23/49] US-MT: 56 elements
+[24/49] US-NE: 241 elements
+[25/49] US-NV: 125 elements
+[26/49] US-NH: 29 elements
+[27/49] US-NJ: 477 elements
+[28/49] US-NM: 84 elements
+[29/49] US-NY: 1470 elements
+[30/49] US-NC: 415 elements
+[31/49] US-ND: 66 elements
+[32/49] US-OH: 280 elements
+[33/49] US-OK: 89 elements
+[34/49] US-OR: 1240 elements
+[35/49] US-PA: 291 elements
+[36/49] US-RI: 45 elements
+US-SC: attempt 1 failed (curl: (56) The requested URL returned error: 502), retrying
+[37/49] US-SC: 188 elements
+[38/49] US-SD: 66 elements
+US-TN: attempt 1 failed (curl: (56) The requested URL returned error: 502), retrying
+[39/49] US-TN: 217 elements
+[40/49] US-TX: 1945 elements
+[41/49] US-UT: 110 elements
+[42/49] US-VT: 25 elements
+[43/49] US-VA: 296 elements
+US-WA: attempt 1 failed (curl: (56) Recv failure: Operation timed out), retrying
+[44/49] US-WA: 351 elements
+[45/49] US-WV: 27 elements
+[46/49] US-WI: 176 elements
+[47/49] US-WY: 27 elements
+[48/49] TW: 57 elements
+[49/49] PR: 9 elements
+download done

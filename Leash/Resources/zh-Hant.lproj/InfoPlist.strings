@@ -1,0 +1,4 @@
+/* 權限說明。系統會依手機語言顯示。 */
+"NSCameraUsageDescription" = "Leash 會使用相機拍下散步照片，並把你的狗狗變成像素小狗。";
+"NSLocationWhenInUseUsageDescription" = "Leash 會使用你的位置來記錄遛狗路線和距離。";
+"NSPhotoLibraryAddUsageDescription" = "Leash 會把散步時拍的照片存到你的照片圖庫。";

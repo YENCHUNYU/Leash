@@ -2,3 +2,4 @@
 xcuserdata/
 DerivedData/
 buildServer.json
+scripts/.osm-cache/

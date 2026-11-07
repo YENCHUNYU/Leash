@@ -38,19 +38,13 @@ struct WalkHomeView: View {
             .toasts(toaster)
             .presentationDetents(detents(for: selected)).presentationDragIndicator(.visible)
         }
-        .background {
-            // The app tint is the light yellow accent, which is hard to read on the dialog; use the text color instead.
-            Color.clear
-                .confirmationDialog(t("Head home and end this walk?", "回家並結束這次散步？"), isPresented: $confirmingFinish, titleVisibility: .visible) {
-                    Button(t("Head home, end walk", "回家，結束散步")) { finishWalk() }
-                }
-                .tint(.primary)
-        }
-        .alert("Leash", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } }), presenting: model.error) { _ in
-            Button(t("OK", "好")) { model.error = nil }
-        } message: { Text($0.message(in: language)) }
+        .pixelDialog(t("End this walk?", "完成這次散步？"), message: t("Head home and save the walk.", "回家並結束這次散步。"),
+                     isPresented: $confirmingFinish, confirm: t("Yes", "是"), cancel: t("No", "否")) { finishWalk() }
+        .pixelDialog("Leash", message: model.error?.message(in: language),
+                     isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } }),
+                     confirm: t("OK", "好"), cancel: nil)
         .fullScreenCover(isPresented: $showingCamera) {
-            CameraPicker { data in savePhoto(data) }.ignoresSafeArea()
+            CameraPicker { data in savePhoto(data, fromCamera: true) }.ignoresSafeArea()
         }
         .photosPicker(isPresented: $showingLibraryPicker, selection: $pickedItem, matching: .images)
         .onChange(of: pickedItem) { _, item in
@@ -107,7 +101,6 @@ struct WalkHomeView: View {
                                  start: WanderingDog.start(index, of: min(shown.count, 6)))
                 }
                 if walk != nil { visitor(in: size) }
-                if walk == nil { door(in: size) }
                 VStack(spacing: 10) {
                     header
                     if let walk { walkStatus(walk) } else { shortcuts }
@@ -198,15 +191,6 @@ struct WalkHomeView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(label)
         .accessibilityValue(badge ?? "")
-    }
-
-    /// The door in the room artwork also starts a walk; hidden from VoiceOver, which uses the Start button.
-    private func door(in size: CGSize) -> some View {
-        Button(action: startWalk) { Color.clear }
-            .disabled(!model.canWrite)
-            .frame(width: size.width * 0.32, height: size.height * 0.32)
-            .position(x: size.width * 0.78, y: size.height * 0.31)
-            .accessibilityHidden(true)
     }
 
     /// Floating Start button, plus the park saved with "Go" that the walk will be linked to.
@@ -398,18 +382,35 @@ struct WalkHomeView: View {
         let strangers = game.pendingEncounters(language: language).filter { !$0.fromEgg }.count
         guard let walk = model.finish() else { return }
         sheet = .finished(walk)
+        detectSpot(for: walk)
         if strangers > 0 {
             toaster.show(t("The dogs you didn't befriend went home. See them next time", "沒交到的狗狗回家了，下次再見"))
         }
     }
 
-    private func savePhoto(_ data: Data) {
+    /// If the walk wasn't linked to a park, finds the one it stayed at and names the diary entry after it.
+    private func detectSpot(for walk: Walk) {
+        guard walk.spotID == nil, let center = SpotDetector.center(of: walk.route) else { return }
+        Task {
+            // Load parks and trails around the route; dog parks are already bundled.
+            await spots.loadNearby(around: center)
+            guard let spot = SpotDetector.detect(walk, among: spots.all) else { return }
+            spots.keep(spot)
+            if model.setDetectedSpot(spot.id, forWalk: walk.id) {
+                toaster.show(t("📍 Walked at \(spot.name)", "📍 在「\(spot.name)」散步"))
+            }
+        }
+    }
+
+    /// Saves to Leash's album; camera shots are also copied to the iPhone's Photos (library picks are already there).
+    private func savePhoto(_ data: Data, fromCamera: Bool = false) {
         let walk = model.activeWalk
         Task {
             do {
                 let photo = try await photos.add(imageData: data, walkID: walk?.id, spotID: walk?.spotID)
                 if walk != nil { model.attachPhoto(photo.id) }
                 toaster.show(t("📷 Saved to album", "📷 收進相簿"))
+                if fromCamera { await SystemPhotos.save(data) }
             } catch {
                 toaster.show(t("Photo didn't save", "照片沒存到"))
             }
@@ -481,17 +482,15 @@ private struct FinishedWalkView: View {
             .sheet(isPresented: $editing) {
                 NavigationStack { WalkEditView(walk: walk, model: model) }
             }
-            .confirmationDialog(language.text("Leave this walk out of the diary?", "不把這次散步加入日記？"),
-                                isPresented: $confirmingDiscard, titleVisibility: .visible) {
-                Button(language.text("Don't add", "不加入日記"), role: .destructive) {
-                    if model.delete(walk) {
-                        toaster.show(language.text("Not added to the diary", "沒有加入日記"))
-                        onDone()
-                    }
+            .pixelDialog(language.text("Leave this walk out of the diary?", "不把這次散步加入日記？"),
+                         message: language.text("It won't count toward quests or streaks. Photos stay in your album.",
+                                                "這次散步不會計入任務和連續天數，照片會留在相簿。"),
+                         isPresented: $confirmingDiscard, confirm: language.text("Don't add", "不加入"), destructive: true,
+                         cancel: language.text("Cancel", "取消")) {
+                if model.delete(walk) {
+                    toaster.show(language.text("Not added to the diary", "沒有加入日記"))
+                    onDone()
                 }
-            } message: {
-                Text(language.text("It won't count toward quests or streaks. Photos stay in your album.",
-                                   "這次散步不會計入任務和連續天數，照片會留在相簿。"))
             }
         } else {
             Color.clear.onAppear(perform: onDone)

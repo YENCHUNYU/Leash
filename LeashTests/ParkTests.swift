@@ -134,3 +134,148 @@ struct LocateUserTests {
         #expect(location.locationRequests == 0)
     }
 }
+
+struct NearbyPlacesTests {
+    private func spot(_ kind: Spot.Kind) -> Spot {
+        Spot(id: "x", name: "Mason Park", country: .unitedStates, region: "CA", subregion: "", address: "",
+             tags: [], latitude: 33.65, longitude: -117.83, source: kind == .dogPark ? .openStreetMap : .appleMaps, kind: kind)
+    }
+
+    @Test func dogParksOnlyHidesParksAndTrails() {
+        var query = ParkQuery()
+        query.filters = [.dogParksOnly]
+        #expect(query.matches(spot(.dogPark)))
+        #expect(!query.matches(spot(.park)))
+        #expect(!query.matches(spot(.trail)))
+    }
+
+    @Test func parksAreUsuallyLeashed() {
+        #expect(spot(.park).leashPolicy == .usuallyLeashed)
+        #expect(spot(.dogPark).leashPolicy == .unknown)
+    }
+
+    @Test func spotsAppleListsAsDogParks() {
+        #expect(ApplePlaces.looksLikeDogPark("Central Bark"))
+        #expect(ApplePlaces.looksLikeDogPark("華江寵物公園"))
+        #expect(!ApplePlaces.looksLikeDogPark("Mason Regional Park"))
+    }
+
+    @Test func unnamedDogParksAreMarked() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("spots-\(UUID()).json")
+        try #"[["w1","Dog Park · Orange","Irvine, CA","",64,33.6,-117.8,"","Orange County"],["w2","Central Bark","Irvine, CA","",64,33.6,-117.8,"","Orange County"]]"#
+            .data(using: .utf8)!.write(to: url)
+        let spots = SpotCatalog.decode(url)
+        #expect(spots.map(\.name) == ["Dog Park", "Central Bark"])
+        #expect(spots.map(\.hasGenericName) == [true, false])
+    }
+}
+
+struct SpotDetectorTests {
+    let start = Date(timeIntervalSince1970: 1_800_000_000)
+
+    /// A walk that stands at `north` meters for each (meters, seconds) leg, from 33.65, -117.83.
+    private func walk(_ legs: [(north: Double, seconds: Double)]) -> Walk {
+        var time = start
+        var walk = Walk(startedAt: start)
+        for leg in legs {
+            walk.route.append(RoutePoint(latitude: 33.65 + leg.north / 111_320, longitude: -117.83, timestamp: time))
+            time = time.addingTimeInterval(leg.seconds)
+        }
+        walk.endedAt = time
+        return walk
+    }
+
+    private func place(_ name: String, north: Double, kind: Spot.Kind) -> Spot {
+        Spot(id: name, name: name, country: .unitedStates, region: "CA", subregion: "", address: "", tags: [],
+             latitude: 33.65 + north / 111_320, longitude: -117.83,
+             source: kind == .dogPark ? .openStreetMap : .appleMaps, kind: kind)
+    }
+
+    @Test func namesTheDogParkTheWalkStayedAt() {
+        let trip = walk([(0, 120), (500, 600), (0, 60)])
+        let found = SpotDetector.detect(trip, among: [place("Bark Park", north: 520, kind: .dogPark)])
+        #expect(found?.name == "Bark Park")
+    }
+
+    @Test func passingByIsNotEnough() {
+        let trip = walk([(0, 600), (500, 20), (1000, 600)])
+        #expect(SpotDetector.detect(trip, among: [place("Bark Park", north: 500, kind: .dogPark)]) == nil)
+    }
+
+    @Test func dogParkWinsOverTheParkAroundIt() {
+        let trip = walk([(0, 900), (60, 300)])
+        let found = SpotDetector.detect(trip, among: [place("Mason Park", north: 0, kind: .park),
+                                                      place("Bark Park", north: 60, kind: .dogPark)])
+        #expect(found?.name == "Bark Park")
+    }
+
+    @Test func fallsBackToAParkOrTrail() {
+        let trip = walk([(0, 300), (100, 300)])
+        let found = SpotDetector.detect(trip, among: [place("Far Dog Park", north: 3000, kind: .dogPark),
+                                                      place("Creek Trail", north: 50, kind: .trail)])
+        #expect(found?.name == "Creek Trail")
+    }
+
+    @Test func standingStillAtOnePointCounts() {
+        // With little movement the route can be a single point; its time runs to the end of the walk.
+        let trip = walk([(10, 400)])
+        #expect(SpotDetector.detect(trip, among: [place("Bark Park", north: 0, kind: .dogPark)])?.name == "Bark Park")
+    }
+}
+
+struct CommunityFacilitiesTests {
+    typealias Tally = CommunityFacilities.Tally
+
+    @Test func needsTwoAgreeingPeople() {
+        #expect(CommunityFacilities.status(of: Tally(yes: 1, no: 0)) == .mixed(Tally(yes: 1, no: 0)))
+        #expect(CommunityFacilities.status(of: Tally(yes: 2, no: 0)) == .confirmedYes(2))
+        #expect(CommunityFacilities.status(of: Tally(yes: 0, no: 3)) == .confirmedNo(3))
+    }
+
+    @Test func disagreementStaysOpen() {
+        #expect(CommunityFacilities.status(of: Tally(yes: 3, no: 2)) == .mixed(Tally(yes: 3, no: 2)))
+        #expect(CommunityFacilities.status(of: Tally(yes: 4, no: 2)) == .confirmedYes(4))
+        #expect(CommunityFacilities.status(of: Tally()) == .unknown)
+    }
+
+    @Test func facilityKeysRoundTrip() {
+        for tag in Spot.Tag.allCases { #expect(Spot.Tag(key: tag.key) == tag) }
+    }
+
+    @Test @MainActor func mappedFacilitiesAreNotAskedAbout() {
+        let community = CommunityFacilities(isEnabled: false)
+        let spot = Spot(id: "osmw-test-\(UUID())", name: "Bark", country: .unitedStates, region: "CA", subregion: "",
+                        address: "", tags: [.water], latitude: 33.6, longitude: -117.8)
+        #expect(community.status(of: .water, at: spot) == .mapped)
+        #expect(!community.unanswered(at: spot, visited: true).contains(.water))
+        #expect(community.unanswered(at: spot, visited: true).contains(.fence))
+        #expect(community.unanswered(at: spot, visited: false).isEmpty)
+    }
+
+    private var park: Spot {
+        Spot(id: "osmw-park", name: "Bark", country: .unitedStates, region: "CA", subregion: "", address: "",
+             tags: [], latitude: 33.65, longitude: -117.83)
+    }
+
+    @Test func onlyVisitorsCanReport() {
+        #expect(!CommunityFacilities.hasVisited(park, walks: [], current: nil))
+        // Standing nearby now.
+        #expect(CommunityFacilities.hasVisited(park, walks: [], current: CLLocation(latitude: 33.651, longitude: -117.83)))
+        // Far away now.
+        #expect(!CommunityFacilities.hasVisited(park, walks: [], current: CLLocation(latitude: 33.70, longitude: -117.83)))
+    }
+
+    @Test func aPastWalkCountsNoMatterWhen() {
+        var linked = Walk(startedAt: Date(timeIntervalSince1970: 0))
+        linked.spotID = park.id
+        #expect(CommunityFacilities.hasVisited(park, walks: [linked], current: nil))
+
+        var passedBy = Walk(startedAt: Date(timeIntervalSince1970: 0))
+        passedBy.route = [RoutePoint(latitude: 33.6505, longitude: -117.83, timestamp: .now)]
+        #expect(CommunityFacilities.hasVisited(park, walks: [passedBy], current: nil))
+
+        var elsewhere = Walk(startedAt: Date(timeIntervalSince1970: 0))
+        elsewhere.route = [RoutePoint(latitude: 33.70, longitude: -117.83, timestamp: .now)]
+        #expect(!CommunityFacilities.hasVisited(park, walks: [elsewhere], current: nil))
+    }
+}

@@ -46,8 +46,31 @@ nonisolated enum DogSprite {
         "..OCCCCGGCCCCO..", "..OCCCCCCCCCCO..", "..OCCO....OCCO..", "..OOOO....OOOO..",
     ]
 
-    static func pixels(look: DogLook, scarf: UInt32) -> [Pixel] {
-        let map = look.ears == .pricked ? prickedEars : floppyEars
+    /// The same template with a happy face: closed "^ ^" eyes and an open mouth with a tongue.
+    static func happy(_ map: [String]) -> [String] {
+        var rows = map.map { Array($0) }
+        // Find each eye by its shine pixel, then clear the open eye.
+        var eyes: [(x: Int, y: Int)] = []
+        for (y, row) in rows.enumerated() {
+            for (x, symbol) in row.enumerated() where symbol == "W" { eyes.append((x, y)) }
+        }
+        for y in rows.indices { for x in rows[y].indices where rows[y][x] == "W" || rows[y][x] == "E" { rows[y][x] = "C" } }
+        for eye in eyes where eye.y + 1 < rows.count && eye.x >= 1 && eye.x + 2 < rows[eye.y].count {
+            rows[eye.y][eye.x] = "E"; rows[eye.y][eye.x + 1] = "E"
+            rows[eye.y + 1][eye.x - 1] = "E"; rows[eye.y + 1][eye.x + 2] = "E"
+        }
+        // Mouth under the nose: corners and a pink tongue.
+        if let noseY = rows.firstIndex(where: { $0.contains("N") }), noseY + 1 < rows.count,
+           let noseX = rows[noseY].firstIndex(of: "N"), noseX >= 1, noseX + 2 < rows[noseY + 1].count {
+            rows[noseY + 1][noseX - 1] = "E"; rows[noseY + 1][noseX + 2] = "E"
+            rows[noseY + 1][noseX] = "K"; rows[noseY + 1][noseX + 1] = "K"
+        }
+        return rows.map { String($0) }
+    }
+
+    static func pixels(look: DogLook, scarf: UInt32, happy: Bool = false) -> [Pixel] {
+        let template = look.ears == .pricked ? prickedEars : floppyEars
+        let map = happy ? Self.happy(template) : template
         // Ears the same color as the head get a darker shade, so they still read as ears.
         let ear = look.earColor == look.coat ? shade(look.coat, 0.8) : look.earColor
         let palette: [Character: UInt32] = [

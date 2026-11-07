@@ -1,0 +1,4 @@
+/* Permission prompts. The system shows these in the phone's language. */
+"NSCameraUsageDescription" = "Leash uses the camera to save photos from your dog walks and to turn your dog into a pixel sprite.";
+"NSLocationWhenInUseUsageDescription" = "Leash uses your location to record your dog walking route and distance.";
+"NSPhotoLibraryAddUsageDescription" = "Leash saves the photos you take on walks to your photo library.";

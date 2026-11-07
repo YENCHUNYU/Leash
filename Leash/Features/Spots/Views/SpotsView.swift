@@ -1,7 +1,7 @@
 import SwiftUI
 import CoreLocation
 
-/// Discover dog parks near you on a map or list. Selecting one opens details with directions.
+/// Discover dog parks, parks and trails near you on a map or list. Selecting one opens details with directions.
 struct SpotsView: View {
     let model: WalkViewModel
     /// Opens with the search field focused, when reached from the home search bar.
@@ -34,7 +34,10 @@ struct SpotsView: View {
             locationBanner(user: user)
             if showingMap {
                 ParkMapView(parks: parks, userLocation: user, fallbackCenter: origin.location,
-                            plannedID: plannedID.isEmpty ? nil : plannedID, selection: $selectedID)
+                            plannedID: plannedID.isEmpty ? nil : plannedID, selection: $selectedID,
+                            searchText: query.text) { center in
+                    Task { await spots.loadNearby(around: center) }
+                }
             } else {
                 list(parks, user: user, originLabel: origin.label)
             }
@@ -46,6 +49,25 @@ struct SpotsView: View {
             if startSearching { searching = true }
         }
         .onChange(of: query) { limit = 30 }
+        // Pressing Search opens the nearest match, like a maps app: preview, info and Go in one sheet.
+        .onSubmit(of: .search) {
+            Task {
+                let near = (user ?? origin.location)
+                await spots.search(query.text, near: near.coordinate)
+                let nearest = query.apply(to: spots.all, origin: near)
+                    .min { ($0.distance(from: near) ?? .infinity) < ($1.distance(from: near) ?? .infinity) }
+                if let nearest { selectedID = nearest.id }
+            }
+        }
+        // Parks and trails around the list's origin, and Apple Maps matches for typed names.
+        .task(id: "\(Int(origin.location.coordinate.latitude * 50)),\(Int(origin.location.coordinate.longitude * 50))") {
+            await spots.loadNearby(around: origin.location.coordinate)
+        }
+        .task(id: query.text) {
+            try? await Task.sleep(for: .milliseconds(500))  // Wait for typing to pause.
+            guard !Task.isCancelled else { return }
+            await spots.search(query.text, near: (user ?? origin.location).coordinate)
+        }
         .sheet(item: Binding(get: { selectedID.flatMap(spots.spot(id:)) }, set: { selectedID = $0?.id })) { spot in
             NavigationStack {
                 ParkDetailView(spot: spot, distance: spot.distance(from: user), model: model, onWalkChanged: onChosen)
@@ -55,7 +77,7 @@ struct SpotsView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $addingSpot) { AddSpotView() }
+        .sheet(isPresented: $addingSpot) { AddSpotView(location: model.currentLocation) }
     }
 
     // MARK: Sorting origin
@@ -149,7 +171,7 @@ struct SpotsView: View {
                 }
             } header: {
                 Text(spots.isLoaded ? "\(language.text("\(parks.count.formatted()) parks", "\(parks.count.formatted()) 個地點")) · \(originLabel)"
-                                    : language.text("Loading dog parks…", "載入地點中…"))
+                                    : language.text("Loading parks…", "載入地點中…"))
             }
             Section {
                 Button(language.text("+ Add a spot", "＋ 新增地點")) { addingSpot = true }
@@ -158,8 +180,8 @@ struct SpotsView: View {
                 if let fetched = spots.fetchedOn {
                     Text(language.text("Data fetched \(fetched). ", "資料擷取於 \(fetched)。"))
                 }
-                Text(language.text("Dog parks from a bundled OpenStreetMap snapshot (© OpenStreetMap contributors). It may be incomplete or out of date; most facilities aren't mapped, so they show as \"Not verified\". Every mapped dog park counts as an off-leash area, so that filter won't narrow results much.",
-                                   "地點來自內建的 OpenStreetMap 快照（© OpenStreetMap contributors），可能不完整或過時；多數設施沒有標註，因此顯示為「未確認」。所有狗公園都標示為可放繩區，所以這個篩選條件影響不大。"))
+                Text(language.text("Dog parks from a bundled OpenStreetMap snapshot (© OpenStreetMap contributors). Other parks and trails come from Apple Maps; dogs there usually need a leash, so check posted rules. Info may be incomplete or out of date; most facilities aren't mapped, so they show as \"Not verified\".",
+                                   "狗公園來自內建的 OpenStreetMap 快照（© OpenStreetMap contributors）；其他公園與步道來自 Apple 地圖，通常需要牽繩，請以現場告示為準。資料可能不完整或過時；多數設施沒有標註，因此顯示為「未確認」。"))
                 }
             }
         }
@@ -168,6 +190,8 @@ struct SpotsView: View {
 }
 
 private struct AddSpotView: View {
+    /// Where the user is, so the example and the saved country match their area, not the app language.
+    let location: CLLocation?
     @Environment(SpotCatalog.self) private var spots
     @Environment(Toaster.self) private var toaster
     @Environment(\.dismiss) private var dismiss
@@ -175,12 +199,13 @@ private struct AddSpotView: View {
     @State private var name = ""
     @State private var area = ""
     @State private var tags: Set<Spot.Tag> = []
+    @State private var here: (text: String, country: Spot.Country, region: String)?
 
     var body: some View {
         NavigationStack {
             Form {
                 TextField(language.text("Name", "名稱"), text: $name)
-                TextField(language.text("City, e.g. Irvine", "縣市與區域，例如：臺北市大安區"), text: $area)
+                TextField(areaPrompt, text: $area)
                 Section(language.text("Facilities", "設施")) {
                     ForEach(Spot.Tag.allCases, id: \.self) { tag in
                         Toggle(tag.label(in: language), isOn: Binding(
@@ -188,6 +213,9 @@ private struct AddSpotView: View {
                             set: { if $0 { tags.insert(tag) } else { tags.remove(tag) } }))
                     }
                 }
+            }
+            .task {
+                if let location { here = await ApplePlaces.area(at: location) }
             }
             .navigationTitle(language.text("Add a spot", "新增地點"))
             .navigationBarTitleDisplayMode(.inline)
@@ -201,12 +229,26 @@ private struct AddSpotView: View {
         }
     }
 
+    /// An example from the user's own area; without location, one from the app language's home region.
+    private var areaPrompt: String {
+        if let here, !here.text.isEmpty {
+            return language.text("City, e.g. \(here.text)", here.country == .taiwan ? "縣市與區域，例如：\(here.text)" : "城市，例如：\(here.text)")
+        }
+        return language.text("City, e.g. Irvine, CA", "縣市與區域，例如：臺北市大安區")
+    }
+
     private func save() {
         let trimmedArea = String(area.trimmingCharacters(in: .whitespaces).prefix(60))
-        let spot = language == .english
-            ? CustomSpot(name: String(name.prefix(40)), area: trimmedArea, tags: tags, country: .unitedStates, region: trimmedArea)
-            : CustomSpot(name: String(name.prefix(40)), area: trimmedArea, tags: tags, country: .taiwan,
-                         region: Regions.taiwanCounty(in: trimmedArea) ?? Regions.taiwan[0])
+        // The typed area decides first (a Taiwan county, or a US state code); otherwise where the user is.
+        let typedCounty = Regions.taiwanCounty(in: trimmedArea)
+        let typedState = trimmedArea.split(separator: ",").last.map { $0.trimmingCharacters(in: .whitespaces).uppercased() }
+            .flatMap { Regions.unitedStates[$0] == nil ? nil : $0 }
+        let country: Spot.Country = typedCounty != nil ? .taiwan : typedState != nil ? .unitedStates
+            : here?.country ?? (language == .english ? .unitedStates : .taiwan)
+        let region = country == .taiwan
+            ? typedCounty ?? (here?.country == .taiwan ? here?.region : nil) ?? Regions.taiwan[0]
+            : typedState ?? (here?.country == .unitedStates ? here?.region : nil) ?? trimmedArea
+        let spot = CustomSpot(name: String(name.prefix(40)), area: trimmedArea, tags: tags, country: country, region: region)
         do {
             try spots.add(spot)
             toaster.show(language.text("Added!", "加入了！"))

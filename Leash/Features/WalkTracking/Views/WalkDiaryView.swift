@@ -34,9 +34,10 @@ struct WalkDiaryView: View {
         .sheet(item: $editing) { walk in
             NavigationStack { WalkEditView(walk: walk, model: model) }
         }
-        .confirmationDialog(language.text("Delete this entry?", "刪除這筆？"), isPresented: Binding(
-            get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }), titleVisibility: .visible, presenting: pendingDelete) { walk in
-            Button(language.text("Delete", "刪除"), role: .destructive) { model.delete(walk) }
+        .pixelDialog(language.text("Delete this entry?", "刪除這筆？"), isPresented: Binding(
+            get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
+                     confirm: language.text("Delete", "刪除"), destructive: true, cancel: language.text("Cancel", "取消")) {
+            if let walk = pendingDelete { model.delete(walk) }
         }
     }
 
@@ -98,6 +99,7 @@ private struct DiaryEntryView: View {
     let model: WalkViewModel
     @State private var editing = false
     @Environment(\.appLanguage) private var language
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         if let walk = model.archive.completed.first(where: { $0.id == id }) {
@@ -108,7 +110,9 @@ private struct DiaryEntryView: View {
                     NavigationStack { WalkEditView(walk: walk, model: model) }
                 }
         } else {
+            // Deleted from its edit page: go back to the diary.
             ContentUnavailableView(language.text("Entry deleted", "這筆已刪除"), systemImage: "trash")
+                .onAppear { dismiss() }
         }
     }
 }

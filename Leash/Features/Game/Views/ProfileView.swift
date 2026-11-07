@@ -8,6 +8,7 @@ struct ProfileView: View {
     @Binding var contentHeight: CGFloat
     @Environment(GameModel.self) private var game
     @Environment(Toaster.self) private var toaster
+    @Environment(PhotoLibrary.self) private var album
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.appLanguage) private var language
     @State private var name = ""
@@ -20,6 +21,7 @@ struct ProfileView: View {
     /// Whether the next photo makes a new dog or updates the current one.
     @State private var photoForNewDog = true
     @State private var removing: DogProfile?
+    @State private var choosingFromAlbum = false
     @FocusState private var editingName: Bool
 
     var body: some View {
@@ -60,6 +62,16 @@ struct ProfileView: View {
                 .frame(maxWidth: .infinity).card()
                 personalityPicker
                 dressUp
+                // Visible way to remove the dog shown here; long-pressing its tile above does the same.
+                if game.roster.dogs.count > 1, let dog = game.roster.dogs.first(where: { $0.id == game.profile.id }) {
+                    Button(role: .destructive) { removing = dog } label: {
+                        Label(language.text("Remove \(dog.displayName(in: language))", "移除「\(dog.displayName(in: language))」"),
+                              systemImage: "trash")
+                            .frame(maxWidth: .infinity).padding(.vertical, 4)
+                    }
+                    .buttonStyle(.bordered).tint(.red)
+                    .padding(.top, 4)
+                }
             }
             .padding(16)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
@@ -70,14 +82,13 @@ struct ProfileView: View {
         .task(id: "\(game.profile.id)-\(game.dogPhotoVersion)") {
             dogPhoto = game.dogPhotoURL(for: game.profile.id).flatMap { UIImage(contentsOfFile: $0.path) }
         }
-        .confirmationDialog(language.text("Remove \(removing?.displayName(in: language) ?? "")?", "移除「\(removing?.displayName(in: language) ?? "")」？"),
-                            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
-                            titleVisibility: .visible, presenting: removing) { dog in
-            Button(language.text("Remove", "移除"), role: .destructive) {
-                if !game.removeDog(dog.id) { toaster.show(language.text("Didn't remove, try again", "沒移除，再試一次")) }
+        .pixelDialog(language.text("Remove \(removing?.displayName(in: language) ?? "")?", "移除「\(removing?.displayName(in: language) ?? "")」？"),
+                     message: language.text("Its name, look and photo will be deleted.", "牠的名字、樣子和照片都會刪除。"),
+                     isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+                     confirm: language.text("Remove", "移除"), destructive: true, cancel: language.text("Cancel", "取消")) {
+            if let dog = removing, !game.removeDog(dog.id) {
+                toaster.show(language.text("Didn't remove, try again", "沒移除，再試一次"))
             }
-        } message: { _ in
-            Text(language.text("Its name, look and photo will be deleted.", "牠的名字、樣子和照片都會刪除。"))
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) { photoMenu }
@@ -95,6 +106,15 @@ struct ProfileView: View {
             .presentationDragIndicator(.visible)
         }
         .photosPicker(isPresented: $showingLibrary, selection: $pickedItem, matching: .images)
+        .sheet(isPresented: $choosingFromAlbum) {
+            NavigationStack {
+                LeashPhotoPicker { photo in
+                    choosingFromAlbum = false
+                    if let data = try? Data(contentsOf: album.url(for: photo)) { readDog(data) }
+                    else { toaster.show(language.text("Couldn't open that photo", "打不開這張照片")) }
+                }
+            }
+        }
         .onChange(of: pickedItem) { _, item in
             guard let item else { return }
             pickedItem = nil
@@ -181,8 +201,14 @@ struct ProfileView: View {
         if UIImagePickerController.isSourceTypeAvailable(.camera) {
             Button { photoForNewDog = newDog; showingCamera = true } label: { Label(language.text("Take Photo", "拍照"), systemImage: "camera") }
         }
+        // Photos taken on walks live in Leash's own album, so offer it alongside the phone's.
+        if !album.photos.isEmpty {
+            Button { photoForNewDog = newDog; choosingFromAlbum = true } label: {
+                Label(language.text("Choose from Leash Album", "從 Leash 相簿選擇"), systemImage: "pawprint")
+            }
+        }
         Button { photoForNewDog = newDog; showingLibrary = true } label: {
-            Label(language.text("Choose Photo", "從相簿選擇"), systemImage: "photo.on.rectangle")
+            Label(language.text("Choose from Photos", "從手機相簿選擇"), systemImage: "photo.on.rectangle")
         }
     }
 

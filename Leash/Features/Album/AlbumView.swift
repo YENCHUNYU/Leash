@@ -9,26 +9,27 @@ struct AlbumView: View {
     @State private var picked: [PhotosPickerItem] = []
 
     var body: some View {
-        let tileColor = Theme.surface(colorScheme)
         ScrollView {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
-                PhotosPicker(selection: $picked, matching: .images) {
-                    Image(systemName: "plus").font(.title)
-                        .frame(maxWidth: .infinity).aspectRatio(1, contentMode: .fit)
-                        .background(tileColor, in: RoundedRectangle(cornerRadius: 12))
-                }
-                .accessibilityLabel(language.text("Add photos", "加入照片"))
                 ForEach(photos.photos) { photo in
                     NavigationLink { PhotoDetailView(photo: photo) } label: { PhotoThumbnail(photo: photo) }
                 }
             }
             .padding(12)
             if photos.photos.isEmpty {
-                Text(language.text("Take photos on walks, or add them here.", "散步時拍照，或從這裡加入照片。"))
+                Text(language.text("Take photos on walks, or tap + to add some.", "散步時拍照，或按右上角 ＋ 加入照片。"))
                     .font(.footnote).foregroundStyle(.secondary).padding()
             }
         }
         .background(Theme.background(colorScheme))
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                PhotosPicker(selection: $picked, matching: .images) {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel(language.text("Add photos", "加入照片"))
+            }
+        }
         .onChange(of: picked) { _, items in
             guard !items.isEmpty else { return }
             picked = []
@@ -39,6 +40,33 @@ struct AlbumView: View {
                     catch { toaster.show(language.text("Photo didn't save", "照片沒存到")) }
                 }
             }
+        }
+    }
+}
+
+/// Picks one of Leash's own photos, e.g. a walk photo to make a pixel dog from.
+struct LeashPhotoPicker: View {
+    let onPick: (Photo) -> Void
+    @Environment(PhotoLibrary.self) private var photos
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appLanguage) private var language
+
+    var body: some View {
+        ScrollView {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
+                ForEach(photos.photos) { photo in
+                    Button { onPick(photo) } label: { PhotoThumbnail(photo: photo) }
+                        .buttonStyle(.plain)
+                }
+            }
+            .padding(12)
+        }
+        .background(Theme.background(colorScheme))
+        .navigationTitle(language.text("Leash Album", "Leash 相簿"))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button(language.text("Cancel", "取消")) { dismiss() } }
         }
     }
 }
@@ -83,14 +111,13 @@ private struct PhotoDetailView: View {
         .toolbar {
             Button(language.text("Delete", "刪除"), systemImage: "trash", role: .destructive) { confirmingDelete = true }
         }
-        .confirmationDialog(language.text("Delete this photo?", "刪除這張？"), isPresented: $confirmingDelete, titleVisibility: .visible) {
-            Button(language.text("Delete", "刪除"), role: .destructive) {
-                do {
-                    try photos.delete(photo)
-                    dismiss()
-                } catch {
-                    toaster.show(language.text("Couldn't delete", "沒刪掉"))
-                }
+        .pixelDialog(language.text("Delete this photo?", "刪除這張？"), isPresented: $confirmingDelete,
+                     confirm: language.text("Delete", "刪除"), destructive: true, cancel: language.text("Cancel", "取消")) {
+            do {
+                try photos.delete(photo)
+                dismiss()
+            } catch {
+                toaster.show(language.text("Couldn't delete", "沒刪掉"))
             }
         }
     }

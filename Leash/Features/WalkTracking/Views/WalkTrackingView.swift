@@ -11,6 +11,7 @@ struct WalkTrackingView: View {
         let walks: WalkViewModel
         let game: GameModel
         let toaster = Toaster()
+        let community = CommunityFacilities()
     }
 
     var body: some View {
@@ -22,6 +23,7 @@ struct WalkTrackingView: View {
                     .environment(services.game.photos)
                     .environment(services.game.spots)
                     .environment(services.toaster)
+                    .environment(services.community)
                     .toasts(services.toaster)
                     .task { await services.game.spots.loadBundled() }
             } else {

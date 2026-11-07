@@ -4,11 +4,16 @@ import CoreLocation
 nonisolated struct Spot: Identifiable, Hashable, Sendable {
     enum Country: String, Codable, Sendable { case taiwan, unitedStates }
 
-    enum Source: Sendable {
+    enum Source: String, Codable, Sendable {
         /// Bundled snapshot of OpenStreetMap `leisure=dog_park` features.
         case openStreetMap
         case userAdded
+        /// A park or trail found with Apple Maps search near where the user is looking.
+        case appleMaps
     }
+
+    /// What kind of place it is. Only dog parks are mapped as off-leash areas.
+    enum Kind: String, Codable, Sendable { case dogPark, park, trail }
 
     /// Raw values are bit positions in the bundled OSM data.
     enum Tag: Int, CaseIterable, Codable, Sendable {
@@ -51,6 +56,8 @@ nonisolated struct Spot: Identifiable, Hashable, Sendable {
     enum LeashPolicy: Sendable {
         /// Mapped as a dog park: by OSM definition an area where dogs may run unleashed.
         case offLeashArea
+        /// A regular park or trail: dogs are usually allowed on a leash, but rules vary.
+        case usuallyLeashed
         case unknown
     }
 
@@ -61,7 +68,7 @@ nonisolated struct Spot: Identifiable, Hashable, Sendable {
     static let otherFacilities: [Tag] = facilities.filter { !keyFacilities.contains($0) }
 
     let id: String
-    let name: String
+    var name: String
     let country: Country
     /// Taiwan county or US state code.
     let region: String
@@ -77,8 +84,12 @@ nonisolated struct Spot: Identifiable, Hashable, Sendable {
     var source = Source.openStreetMap
     /// "YYYY-MM-DD": when the OSM feature was last edited, or when the user added the spot; nil when unknown.
     var lastUpdated: String?
+    var kind = Kind.dogPark
+    /// Mapped without a name, so it shows as plain "Dog Park" until a nearby park lends it one.
+    var hasGenericName = false
 
     var isCustom: Bool { source == .userAdded }
+    var isDogPark: Bool { kind == .dogPark }
     /// The park's page on openstreetmap.org, where it can be checked or corrected.
     var sourceURL: URL? {
         guard source == .openStreetMap, id.hasPrefix("osm"), id.count > 4 else { return nil }
@@ -97,7 +108,10 @@ nonisolated struct Spot: Identifiable, Hashable, Sendable {
     }
 
     func status(_ facility: Tag) -> FacilityStatus { tags.contains(facility) ? .available : .notVerified }
-    var leashPolicy: LeashPolicy { tags.contains(.offLeash) ? .offLeashArea : .unknown }
+    var leashPolicy: LeashPolicy {
+        if tags.contains(.offLeash) { return .offLeashArea }
+        return kind == .dogPark ? .unknown : .usuallyLeashed
+    }
     /// Mapped hours, or the 24-hour tag when no hours text exists.
     var hoursDescription: String? { openingHours ?? (tags.contains(.allDay) ? "24/7" : nil) }
 

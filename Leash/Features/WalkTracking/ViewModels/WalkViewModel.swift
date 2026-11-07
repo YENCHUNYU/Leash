@@ -11,7 +11,10 @@ final class WalkViewModel {
     private(set) var canWrite = false
     private let store: any WalkStoring
     private let location: any LocationTracking
-    private var previousLocation: CLLocation?
+    private var previousLocation: CLLocation? { didSet { if previousLocation == nil { smoother.reset(); lastSeen = nil } } }
+    /// When the last usable fix arrived, drawn or skipped. A long gap since then means GPS was lost.
+    private var lastSeen: Date?
+    private var smoother = RouteSmoother()
     private(set) var authorization: CLAuthorizationStatus
     /// Most recent accurate fix, kept even when no walk is running.
     private(set) var lastFix: CLLocation?
@@ -75,6 +78,14 @@ final class WalkViewModel {
         guard var walk = archive.active else { return }
         walk.spotID = spotID
         saveActive(walk)
+    }
+
+    /// Names the park a finished walk was at, unless the walk already has one.
+    @discardableResult
+    func setDetectedSpot(_ spotID: String, forWalk id: UUID) -> Bool {
+        guard var walk = archive.completed.first(where: { $0.id == id }), walk.spotID == nil else { return false }
+        walk.spotID = spotID
+        return update(walk)
     }
 
     func attachPhoto(_ id: UUID) {
@@ -155,19 +166,30 @@ final class WalkViewModel {
     private func receive(_ fix: CLLocation) {
         if fix.horizontalAccuracy >= 0, fix.horizontalAccuracy <= 100 { lastFix = fix }
         guard var walk = archive.active else { return }
-        switch RouteFilter.evaluate(fix, previous: previousLocation, walk: walk) {
+        let smoothed = smoother.smoothed(fix)
+        let point = smoothed.location
+        let startsSegment = previousLocation == nil
+            || point.timestamp.timeIntervalSince(lastSeen ?? .distantPast) > RouteFilter.maxSegmentGap
+        switch RouteFilter.evaluate(point, previous: previousLocation, lastSeen: lastSeen, walk: walk) {
         case .inaccurate:
             gpsStatus = .weakSignal
         case .jump:
             gpsStatus = .ignoringJump
         case .skip:
-            break
+            // Too close to draw, but still a good reading: keep it in the estimate.
+            if let previousLocation, point.timestamp > previousLocation.timestamp {
+                smoother.commit(smoothed)
+                lastSeen = point.timestamp
+            }
         case .accept(let distance):
+            smoother.commit(smoothed)
             walk.distanceMeters += distance
-            walk.route.append(RoutePoint(latitude: fix.coordinate.latitude,
-                                         longitude: fix.coordinate.longitude, timestamp: fix.timestamp))
+            walk.route.append(RoutePoint(latitude: point.coordinate.latitude,
+                                         longitude: point.coordinate.longitude, timestamp: point.timestamp,
+                                         startsSegment: startsSegment))
             if saveActive(walk) {
-                previousLocation = fix
+                previousLocation = point
+                lastSeen = point.timestamp
                 gpsStatus = .tracking
             }
         }

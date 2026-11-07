@@ -6,6 +6,8 @@ struct RoutePoint: Codable, Identifiable, Equatable {
     let latitude: Double
     let longitude: Double
     let timestamp: Date
+    /// True where tracking resumed after GPS was lost. Nil on routes saved before this was recorded.
+    var startsSegment: Bool? = nil
 
     var coordinate: CLLocationCoordinate2D { CLLocationCoordinate2D(latitude: latitude, longitude: longitude) }
 }
@@ -61,10 +63,15 @@ struct Walk: Codable, Identifiable, Equatable {
 
     /// Route split at the same gaps RouteFilter excludes from distance.
     var segments: [[RoutePoint]] {
+        // Newer routes mark their breaks. Older ones only have timestamps, so a long gap between points is the best guess.
+        let marked = route.contains { $0.startsSegment != nil }
         var result: [[RoutePoint]] = []
         var previous: Date?
         for point in route {
-            if let previous, point.timestamp.timeIntervalSince(previous) <= RouteFilter.maxSegmentGap {
+            let continues = marked
+                ? point.startsSegment != true
+                : previous.map { point.timestamp.timeIntervalSince($0) <= RouteFilter.maxSegmentGap } ?? false
+            if continues, !result.isEmpty {
                 result[result.count - 1].append(point)
             } else {
                 result.append([point])

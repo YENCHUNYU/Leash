@@ -8,11 +8,13 @@ struct PixelDog: View {
     var silhouette = false
     var look: DogLook? = nil
     var accessory: Accessory? = nil
+    /// Closed happy eyes and a tongue, e.g. while being petted.
+    var happy = false
 
     var body: some View {
         let ears = look?.ears ?? (breed.ears == .pricked ? .pricked : .floppy)
-        let pixels = (look.map { DogSprite.pixels(look: $0, scarf: scarf) }
-            ?? Self.pixels(breed: breed, scarf: scarf, silhouette: silhouette))
+        let pixels = (look.map { DogSprite.pixels(look: $0, scarf: scarf, happy: happy) }
+            ?? Self.pixels(breed: breed, scarf: scarf, silhouette: silhouette, happy: happy && !silhouette))
             + (accessory.map { DogSprite.pixels(for: $0, ears: ears) } ?? [])
         Canvas { context, size in
             let cell = CGSize(width: size.width / 16, height: size.height / 16)
@@ -28,8 +30,9 @@ struct PixelDog: View {
 
     private typealias Pixel = DogSprite.Pixel
 
-    private static func pixels(breed: Breed, scarf: UInt32, silhouette: Bool) -> [Pixel] {
-        let map = breed.ears == .pricked ? DogSprite.prickedEars : DogSprite.floppyEars
+    private static func pixels(breed: Breed, scarf: UInt32, silhouette: Bool, happy: Bool) -> [Pixel] {
+        let template = breed.ears == .pricked ? DogSprite.prickedEars : DogSprite.floppyEars
+        let map = happy ? DogSprite.happy(template) : template
         let light = [0xFFFFFF, 0xF7F4EE, 0xF4ECDF].contains(breed.coat)
         let palette: [Character: UInt32] = [
             "O": 0x2B2533, "E": 0x2B2533, "N": 0x2B2533, "W": 0xFFFFFF, "K": 0xF2A6A0,

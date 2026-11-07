@@ -76,7 +76,9 @@ struct WalkViewModelTests {
         location.send(fix(north: 10, now: now.addingTimeInterval(3)))
         location.send(fix(north: 600, now: now.addingTimeInterval(5)))
         #expect(model.activeWalk?.route.count == 2)
-        #expect(abs((model.activeWalk?.distanceMeters ?? 0) - 10) < 0.5)
+        // Smoothing pulls the second point a little toward the first.
+        let meters = model.activeWalk?.distanceMeters ?? 0
+        #expect(meters > 5 && meters <= 10)
         #expect(model.gpsStatus == .ignoringJump)
     }
 
